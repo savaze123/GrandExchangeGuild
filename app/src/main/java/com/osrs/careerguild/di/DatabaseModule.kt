@@ -6,7 +6,7 @@ import android.security.keystore.KeyProperties
 import androidx.room.Room
 import com.osrs.careerguild.BuildConfig
 import com.osrs.careerguild.data.local.CareerGuildDatabase
-import net.sqlcipher.database.SupportFactory
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -41,7 +41,7 @@ object DatabaseModule {
 
     fun createDatabase(context: Context): CareerGuildDatabase {
         val passphrase = getOrCreatePassphrase(context)
-        val factory    = SupportFactory(passphrase)
+        val factory    = SupportOpenHelperFactory(passphrase)
         passphrase.fill(0) // zero out after handing to SQLCipher
 
         return Room.databaseBuilder(

@@ -62,15 +62,20 @@
 - **Issue:** `AAPT: error: resource style/Theme.Material3.DayNight.NoActionBar not found`.
 - **Resolution:** Added `com.google.android.material:material:1.12.0` (`google-material`) to `gradle/libs.versions.toml` and `app/build.gradle.kts`.
 
-### ✅ RESOLVED: Compilation & Resource Linking Fixes
-- **Issue:** Missing mipmap launcher icons, `SupportFactory` package reference in `DatabaseModule.kt`, nullability in `BountyBoardScreen.kt`, and default ViewModel wiring in `DashboardPane.kt` / `MainActivity.kt`.
-- **Resolution:** Corrected all references. `./gradlew compileDebugKotlin -q` builds cleanly with 0 errors.
+### ✅ RESOLVED: 16 KB Page Size Alignment for Android 15/16/17 (Pixel 10 Pro Fold)
+- **Issue:** Legacy 4 KB ELF page alignment in bundled native libraries caused runtime/install incompatibility on 16 KB page kernel devices.
+- **Resolution:**
+  - Upgraded Google Filament to `1.57.1` (`libfilament-jni.so`, `libfilament-utils-jni.so`, `libgltfio-jni.so` all `0x4000` 16 KB aligned).
+  - Switched SQLCipher to `net.zetetic:sqlcipher-android:4.6.1` with `SupportOpenHelperFactory` (`libsqlcipher.so` `0x4000` 16 KB aligned).
+  - Added `androidx.graphics:graphics-path:1.1.0` (`libandroidx.graphics.path.so` `0x4000` 16 KB aligned).
+  - Upgraded Jetpack Datastore to `1.2.1` (`libdatastore_shared_counter.so` `0x4000` 16 KB aligned).
+  - Verified `./gradlew installDebug` and launched successfully on connected Pixel 10 Pro Fold (`Pixel 10 Pro Fold - 17`).
 
 ---
 
 ## 4. Next Session — Resumption Checklist
 
-1. `./gradlew compileDebugKotlin -q` is fully verified and passing.
+1. `./gradlew installDebug` is fully verified and passing on Pixel 10 Pro Fold.
 2. Next modules to implement per `project_graph.json`:
    - `SCREENSHOT_OCR_HUNTER` — ML Kit OCR + screenshot picker
    - `RESUME_FORGE_PDF` — Native `PdfDocument` resume/cover-letter generator
