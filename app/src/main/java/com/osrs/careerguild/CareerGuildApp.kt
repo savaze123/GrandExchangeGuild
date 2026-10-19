@@ -23,6 +23,9 @@ class CareerGuildApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        // Load SQLCipher native library before Room/AppContainer database creation
+        System.loadLibrary("sqlcipher")
+
         // Filament must be init'd before any Engine instance is created (main thread only)
         FilamentUtils.init()
 

@@ -40,6 +40,7 @@ object DatabaseModule {
     private const val GCM_TAG_BITS   = 128
 
     fun createDatabase(context: Context): CareerGuildDatabase {
+        System.loadLibrary("sqlcipher")
         val passphrase = getOrCreatePassphrase(context)
         val factory    = SupportOpenHelperFactory(passphrase)
         passphrase.fill(0) // zero out after handing to SQLCipher

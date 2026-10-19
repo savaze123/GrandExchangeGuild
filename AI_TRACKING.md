@@ -71,6 +71,12 @@
   - Upgraded Jetpack Datastore to `1.2.1` (`libdatastore_shared_counter.so` `0x4000` 16 KB aligned).
   - Verified `./gradlew installDebug` and launched successfully on connected Pixel 10 Pro Fold (`Pixel 10 Pro Fold - 17`).
 
+### ✅ RESOLVED: SQLCipher UnsatisfiedLinkError Runtime Native Loading
+- **Issue:** Runtime crash accessing database: `UnsatisfiedLinkError: No implementation found for long net.zetetic.database.sqlcipher.SQLiteConnection.nativeOpen...`.
+- **Resolution:**
+  - Added explicit `System.loadLibrary("sqlcipher")` invocation in `CareerGuildApp.onCreate()` prior to `AppContainer` instantiation and in `DatabaseModule.createDatabase()`.
+  - Re-installed and verified via `./gradlew installDebug`; application launched cleanly and opened database without link errors.
+
 ---
 
 ## 4. Next Session — Resumption Checklist
