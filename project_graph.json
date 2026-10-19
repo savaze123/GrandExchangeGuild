@@ -54,7 +54,13 @@
       "id": "UI_3D_GUILD_HUB",
       "type": "Presentation_3D",
       "tech": "Google Filament 3D Engine (glTF/GLB)",
-      "role": "Interactive low-poly buildings: Bounty Board (Jobs), Scribe Tower (Resume/Cover Letter PDF), Skill Altar (Dynamic Skill Matrix), Courier Guild (Auto-Apply Queue)."
+      "role": "Interactive low-poly buildings: Bounty Board (Jobs), Scribe Tower (Resume/Cover Letter PDF), Skill Altar (Dynamic Skill Matrix), Courier Guild (Auto-Apply Queue).",
+      "status": "COMPLETED",
+      "completed_in": "feature/di-skill-altar",
+      "completed_files": [
+        "GuildHubPane.kt",
+        "osrs_guild.glb"
+      ]
     },
     {
       "id": "DYNAMIC_SKILL_MATRIX",

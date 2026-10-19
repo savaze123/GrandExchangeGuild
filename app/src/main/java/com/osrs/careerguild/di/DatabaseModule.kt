@@ -32,6 +32,14 @@ import javax.crypto.spec.GCMParameterSpec
  */
 object DatabaseModule {
 
+    init {
+        try {
+            System.loadLibrary("sqlcipher")
+        } catch (t: Throwable) {
+            android.util.Log.w("DatabaseModule", "SQLCipher loadLibrary warning: ${t.message}")
+        }
+    }
+
     private const val KEY_ALIAS      = "career_guild_db_v1"
     private const val PREFS_NAME     = "career_guild_vault"
     private const val PREF_CIPHER    = "db_ct"

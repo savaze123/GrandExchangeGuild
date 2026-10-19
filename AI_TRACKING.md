@@ -71,11 +71,32 @@
   - Upgraded Jetpack Datastore to `1.2.1` (`libdatastore_shared_counter.so` `0x4000` 16 KB aligned).
   - Verified `./gradlew installDebug` and launched successfully on connected Pixel 10 Pro Fold (`Pixel 10 Pro Fold - 17`).
 
-### ✅ RESOLVED: SQLCipher UnsatisfiedLinkError Runtime Native Loading
-- **Issue:** Runtime crash accessing database: `UnsatisfiedLinkError: No implementation found for long net.zetetic.database.sqlcipher.SQLiteConnection.nativeOpen...`.
+### Step 3 — 3D Virtual Playground (Filament 120Hz) & UI Fixes ✅
+| File | Status | Notes |
+|---|---|---|
+| `presentation/hub/GuildHubPane.kt` | **REBUILT** | Google Filament 3D Virtual Playground Environment at 120Hz, gesture camera manipulator, lowered header with visible OSRS borders, interactive building dock |
+| `assets/models/osrs_guild.glb` | **CREATED** | Low-poly OSRS Grand Exchange hub GLB (plaza, fountain, Bounty Board, Scribe Tower, Skill Altar, Courier Guild, trees, <70KB) |
+| `presentation/MainActivity.kt` | **MODIFIED** | Added static initializer and `onCreate` SQLCipher library loading |
+| `data/local/CareerGuildDatabase.kt` | **MODIFIED** | Added static companion initializer for SQLCipher library loading |
+| `di/DatabaseModule.kt` | **MODIFIED** | Added static `init` block for SQLCipher library loading |
+| `project_graph.json` | **UPDATED** | Marked `UI_3D_GUILD_HUB` as COMPLETED |
+
+---
+
+## 3. Known Blockers / Errors
+
+### ✅ RESOLVED: SQLCipher Native Loading & UnsatisfiedLinkError
+- **Issue:** Runtime crash accessing database screens: `UnsatisfiedLinkError: No implementation found for long net.zetetic.database.sqlcipher.SQLiteConnection.nativeOpen...`.
 - **Resolution:**
-  - Added explicit `System.loadLibrary("sqlcipher")` invocation in `CareerGuildApp.onCreate()` prior to `AppContainer` instantiation and in `DatabaseModule.createDatabase()`.
+  - Added explicit `System.loadLibrary("sqlcipher")` invocation in `CareerGuildApp.onCreate()`, `MainActivity` companion/onCreate, `DatabaseModule.createDatabase()`/init, and `CareerGuildDatabase` companion object.
   - Re-installed and verified via `./gradlew installDebug`; application launched cleanly and opened database without link errors.
+
+### ✅ RESOLVED: Header Text & Filament 3D Virtual Playground Replacement
+- **Issue:** Header text needed to be lowered below status bar with visible borders, and Phase 1 placeholder needed replacement with 3D Google Filament playground.
+- **Resolution:**
+  - Lowered header with `statusBarsPadding()` and 16.dp padding; wrapped in OSRS dark stone card with visible 2.dp gold (`#FFD700`) border and dark inset border displaying `"⚔ Grand Exchange Career Build"`.
+  - Replaced `GuildHubPlaceholder` with `FilamentVirtualPlayground` in `GuildHubPane.kt` using `ModelViewer` rendering `osrs_guild.glb` at 120Hz with gesture orbit/pan/zoom and lifecycle management.
+  - Added bottom interactive building dock for one-tap navigation to Bounty Board, Scribe Tower, Skill Altar, and Courier Guild.
 
 ---
 

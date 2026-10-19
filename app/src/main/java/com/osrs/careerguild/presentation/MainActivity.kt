@@ -23,8 +23,23 @@ import com.osrs.careerguild.presentation.scaffold.GuildScaffold
  */
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        init {
+            try {
+                System.loadLibrary("sqlcipher")
+            } catch (t: Throwable) {
+                android.util.Log.w("MainActivity", "SQLCipher loadLibrary warning: ${t.message}")
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        try {
+            System.loadLibrary("sqlcipher")
+        } catch (t: Throwable) {
+            android.util.Log.w("MainActivity", "SQLCipher loadLibrary warning: ${t.message}")
+        }
         enableEdgeToEdge()
         val app = application as CareerGuildApp
         setContent {
