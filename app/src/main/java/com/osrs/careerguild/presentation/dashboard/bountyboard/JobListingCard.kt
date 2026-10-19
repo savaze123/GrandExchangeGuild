@@ -50,6 +50,8 @@ fun JobListingCard(
     onApply         : (String) -> Unit,
     onBlock         : (String) -> Unit,
     onOpenAts       : (String) -> Unit,
+    onForgeScroll   : (JobListing) -> Unit = {},
+    onQueueAutoApply: (JobListing) -> Unit = {},
     modifier        : Modifier = Modifier,
 ) {
     val tierColor = scoreTierColor(job.score)
@@ -119,44 +121,83 @@ fun JobListingCard(
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // --- Action row ---
+            // --- Action row: Forge Scroll & Queue Auto-Apply buttons + quick icons ---
             Row(
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically,
                 modifier              = Modifier.fillMaxWidth(),
             ) {
-                IconButton(
-                    onClick  = { onOpenAts(job.atsUrl) },
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        imageVector        = Icons.Default.OpenInBrowser,
-                        contentDescription = "Open ATS link",
-                        tint               = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                if (job.appliedAt == null) {
-                    IconButton(
-                        onClick  = { onApply(job.id) },
-                        modifier = Modifier.size(36.dp),
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Forge Scroll (Scribe Tower)
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = { onForgeScroll(job) },
+                        shape   = RoundedCornerShape(6.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        border  = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFD700)),
+                        colors  = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color(0xFF3D2B1F).copy(alpha = 0.4f),
+                        ),
                     ) {
-                        Icon(
-                            imageVector        = Icons.Default.CheckCircle,
-                            contentDescription = "Mark applied",
-                            tint               = Color(0xFF4CAF50),
+                        Text(
+                            text  = "📜 Forge Scroll",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFFFFD700),
+                        )
+                    }
+
+                    // Queue Auto-Apply (Courier Guild)
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = { onQueueAutoApply(job) },
+                        shape   = RoundedCornerShape(6.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        border  = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF)),
+                        colors  = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color(0xFF1E3A4A).copy(alpha = 0.4f),
+                        ),
+                    ) {
+                        Text(
+                            text  = "📬 Auto-Apply",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFF00E5FF),
                         )
                     }
                 }
-                IconButton(
-                    onClick  = { onBlock(job.company) },
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        imageVector        = Icons.Default.Block,
-                        contentDescription = "Block company",
-                        tint               = MaterialTheme.colorScheme.error,
-                    )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick  = { onOpenAts(job.atsUrl) },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            imageVector        = Icons.Default.OpenInBrowser,
+                            contentDescription = "Open ATS link",
+                            tint               = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    if (job.appliedAt == null) {
+                        IconButton(
+                            onClick  = { onApply(job.id) },
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Icon(
+                                imageVector        = Icons.Default.CheckCircle,
+                                contentDescription = "Mark applied",
+                                tint               = Color(0xFF4CAF50),
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick  = { onBlock(job.company) },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            imageVector        = Icons.Default.Block,
+                            contentDescription = "Block company",
+                            tint               = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             }
         }

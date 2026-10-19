@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,9 +18,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -35,6 +39,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -45,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
@@ -55,21 +61,16 @@ import androidx.compose.ui.unit.dp
  * Bounty Board screen — the full right-pane feature for [UI_SPLIT_SCAFFOLD]
  * when the user taps the Bounty Board building in [UI_3D_GUILD_HUB].
  *
- * Layout:
- * ┌────────────────────────────────────────────┐
- * │  TopAppBar: "📋 Bounty Board"  [Refresh ↺] │
- * │  SearchBar                                  │
- * │  ScoringProgressBar (animated, dismisses)   │
- * │  LazyColumn of JobListingCards              │
- * │  SnackbarHost (block confirmations)         │
- * └────────────────────────────────────────────┘
- *
  * Node: UI_SPLIT_SCAFFOLD (Bounty Board detail pane)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BountyBoardScreen(
-    viewModel: BountyBoardViewModel,
+    viewModel       : BountyBoardViewModel,
+    isSinglePane    : Boolean = false,
+    onNavigateBack  : () -> Unit = {},
+    onForgeScroll   : (com.osrs.careerguild.domain.model.JobListing) -> Unit = {},
+    onQueueAutoApply: (com.osrs.careerguild.domain.model.JobListing) -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -94,15 +95,60 @@ fun BountyBoardScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
 
-        // --- Top bar ---
-        TopAppBar(
-            title = {
-                Text(
-                    text  = "📋 Bounty Board",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                )
-            },
-            actions = {
+        // --- Lowered OSRS Header with visible borders ---
+        Surface(
+            shape  = RoundedCornerShape(8.dp),
+            color  = Color(0xFF2B1D14).copy(alpha = 0.95f),
+            border = BorderStroke(2.dp, Color(0xFFFFD700)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(top = 12.dp, start = 12.dp, end = 12.dp, bottom = 4.dp)
+                .border(1.dp, Color(0xFF1A0F08), RoundedCornerShape(8.dp)),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    if (isSinglePane) {
+                        androidx.compose.material3.OutlinedButton(
+                            onClick = onNavigateBack,
+                            shape   = RoundedCornerShape(6.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            border  = BorderStroke(1.dp, Color(0xFFFFD700)),
+                            colors  = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                containerColor = Color(0xFF3D2B1F),
+                            ),
+                            modifier = Modifier.padding(end = 8.dp),
+                        ) {
+                            Text(
+                                text  = "← Back to Guild",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFFFFD700),
+                            )
+                        }
+                    }
+                    Column {
+                        Text(
+                            text  = "📋 Bounty Board",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFFFFD700),
+                        )
+                        Text(
+                            text  = "Live Tech Radar & Trajectory Scoring",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF9E8A6A),
+                        )
+                    }
+                }
+
                 IconButton(
                     onClick  = { viewModel.refresh() },
                     enabled  = !uiState.isScraping && !uiState.isScoring,
@@ -110,14 +156,11 @@ fun BountyBoardScreen(
                     Icon(
                         imageVector        = Icons.Default.Refresh,
                         contentDescription = "Refresh job listings",
-                        tint               = MaterialTheme.colorScheme.primary,
+                        tint               = Color(0xFFFFD700),
                     )
                 }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-            ),
-        )
+            }
+        }
 
         // --- Search bar ---
         OutlinedTextField(
@@ -197,13 +240,15 @@ fun BountyBoardScreen(
                             key   = { it.id },
                         ) { job ->
                             JobListingCard(
-                                job       = job,
-                                onApply   = viewModel::markApplied,
-                                onBlock   = viewModel::blockCompany,
-                                onOpenAts = { url ->
+                                job              = job,
+                                onApply          = viewModel::markApplied,
+                                onBlock          = viewModel::blockCompany,
+                                onOpenAts        = { url ->
                                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                                     context.startActivity(intent)
                                 },
+                                onForgeScroll    = onForgeScroll,
+                                onQueueAutoApply = onQueueAutoApply,
                             )
                         }
 

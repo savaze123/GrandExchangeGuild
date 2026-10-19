@@ -7,7 +7,6 @@ class GLBBuilder:
     def __init__(self):
         self.materials = []
         self.primitives = [] # list of (material_idx, positions, normals, indices)
-        self.nodes = []
 
     def add_material(self, name, base_color, metallic=0.1, roughness=0.8):
         idx = len(self.materials)
@@ -22,17 +21,14 @@ class GLBBuilder:
         return idx
 
     def add_box(self, mat_idx, cx, cy, cz, sx, sy, sz):
-        # 8 corners
         hx, hy, hz = sx / 2.0, sy / 2.0, sz / 2.0
-        # 6 faces * 4 vertices = 24 vertices for proper flat normals
         faces = [
-            # Normal, 4 local vertices
-            ((0, 1, 0), [(-hx, hy, -hz), (hx, hy, -hz), (hx, hy, hz), (-hx, hy, hz)]),  # Top (+Y)
-            ((0, -1, 0), [(-hx, -hy, hz), (hx, -hy, hz), (hx, -hy, -hz), (-hx, -hy, -hz)]), # Bottom (-Y)
-            ((0, 0, 1), [(-hx, -hy, hz), (hx, -hy, hz), (hx, hy, hz), (-hx, hy, hz)]),  # Front (+Z)
-            ((0, 0, -1), [(hx, -hy, -hz), (-hx, -hy, -hz), (-hx, hy, -hz), (hx, hy, -hz)]), # Back (-Z)
-            ((-1, 0, 0), [(-hx, -hy, -hz), (-hx, -hy, hz), (-hx, hy, hz), (-hx, hy, -hz)]), # Left (-X)
-            ((1, 0, 0), [(hx, -hy, hz), (hx, -hy, -hz), (hx, hy, -hz), (hx, hy, hz)]),   # Right (+X)
+            ((0, 1, 0), [(-hx, hy, -hz), (hx, hy, -hz), (hx, hy, hz), (-hx, hy, hz)]),  # Top
+            ((0, -1, 0), [(-hx, -hy, hz), (hx, -hy, hz), (hx, -hy, -hz), (-hx, -hy, -hz)]), # Bottom
+            ((0, 0, 1), [(-hx, -hy, hz), (hx, -hy, hz), (hx, hy, hz), (-hx, hy, hz)]),  # Front
+            ((0, 0, -1), [(hx, -hy, -hz), (-hx, -hy, -hz), (-hx, hy, -hz), (hx, hy, -hz)]), # Back
+            ((-1, 0, 0), [(-hx, -hy, -hz), (-hx, -hy, hz), (-hx, hy, hz), (-hx, hy, -hz)]), # Left
+            ((1, 0, 0), [(hx, -hy, hz), (hx, -hy, -hz), (hx, hy, -hz), (hx, hy, hz)]),   # Right
         ]
         positions = []
         normals = []
@@ -51,7 +47,6 @@ class GLBBuilder:
         normals = []
         indices = []
         hy = h / 2.0
-        # Side faces
         base_v = 0
         for i in range(segments):
             a1 = 2 * math.pi * i / segments
@@ -93,7 +88,6 @@ class GLBBuilder:
             a2 = 2 * math.pi * (i + 1) / segments
             x1, z1 = cx + r * math.cos(a1), cz + r * math.sin(a1)
             x2, z2 = cx + r * math.cos(a2), cz + r * math.sin(a2)
-            # Face normal
             nx = math.cos((a1 + a2)/2)
             nz = math.sin((a1 + a2)/2)
             positions.extend([(x1, cy - hy, z1), (x2, cy - hy, z2), apex])
@@ -102,8 +96,33 @@ class GLBBuilder:
             base_v += 3
         self.primitives.append((mat_idx, positions, normals, indices))
 
+    def add_character(self, cx, cy, cz, tunic_mat, cape_mat, skin_mat, rot_y=0.0):
+        # Stylized low-poly OSRS adventurer / NPC:
+        # Legs (dark boots), Torso (tunic), Head (skin/helmet), Cape (on back)
+        cos_r = math.cos(rot_y)
+        sin_r = math.sin(rot_y)
+        def rot(lx, lz):
+            return (cx + lx * cos_r - lz * sin_r, cz + lx * sin_r + lz * cos_r)
+
+        # Feet / Boots (dark)
+        px1, pz1 = rot(-0.12, 0)
+        px2, pz2 = rot(0.12, 0)
+        self.add_box(tunic_mat, px1, cy + 0.2, pz1, 0.16, 0.4, 0.22)
+        self.add_box(tunic_mat, px2, cy + 0.2, pz2, 0.16, 0.4, 0.22)
+
+        # Torso / Tunic
+        tx, tz = rot(0, 0)
+        self.add_box(tunic_mat, tx, cy + 0.7, tz, 0.45, 0.6, 0.28)
+
+        # Head / Face
+        hx, hz = rot(0, 0)
+        self.add_box(skin_mat, hx, cy + 1.15, hz, 0.26, 0.28, 0.26)
+
+        # Cape on back
+        cx_c, cz_c = rot(0, -0.16)
+        self.add_box(cape_mat, cx_c, cy + 0.65, cz_c, 0.38, 0.7, 0.06)
+
     def build_glb(self):
-        # Merge primitives by material
         mat_groups = {}
         for mat_idx, pos, norm, ind in self.primitives:
             if mat_idx not in mat_groups:
@@ -122,11 +141,10 @@ class GLBBuilder:
         for mat_idx, (p_list, n_list, i_list) in mat_groups.items():
             if not i_list:
                 continue
-            # Pack Indices (UNSIGNED_INT 4 bytes)
+            # Pack Indices
             ind_bytes = bytearray()
             for idx in i_list:
                 ind_bytes.extend(struct.pack('<I', idx))
-            # Pad to 4 bytes
             while len(ind_bytes) % 4 != 0:
                 ind_bytes.extend(b'\x00')
 
@@ -137,20 +155,20 @@ class GLBBuilder:
                 "buffer": 0,
                 "byteOffset": ind_offset,
                 "byteLength": len(ind_bytes),
-                "target": 34963 # ELEMENT_ARRAY_BUFFER
+                "target": 34963
             })
             ind_acc_idx = len(accessors)
             accessors.append({
                 "bufferView": ind_bv_idx,
                 "byteOffset": 0,
-                "componentType": 5125, # UNSIGNED_INT
+                "componentType": 5125,
                 "count": len(i_list),
                 "type": "SCALAR",
                 "max": [max(i_list)],
                 "min": [min(i_list)]
             })
 
-            # Pack Positions (FLOAT 3 components = 12 bytes)
+            # Pack Positions
             pos_bytes = bytearray()
             min_pos = [1e9, 1e9, 1e9]
             max_pos = [-1e9, -1e9, -1e9]
@@ -172,20 +190,20 @@ class GLBBuilder:
                 "buffer": 0,
                 "byteOffset": pos_offset,
                 "byteLength": len(pos_bytes),
-                "target": 34962 # ARRAY_BUFFER
+                "target": 34962
             })
             pos_acc_idx = len(accessors)
             accessors.append({
                 "bufferView": pos_bv_idx,
                 "byteOffset": 0,
-                "componentType": 5126, # FLOAT
+                "componentType": 5126,
                 "count": len(p_list),
                 "type": "VEC3",
                 "max": max_pos,
                 "min": min_pos
             })
 
-            # Pack Normals (FLOAT 3 components = 12 bytes)
+            # Pack Normals
             norm_bytes = bytearray()
             for nx, ny, nz in n_list:
                 norm_bytes.extend(struct.pack('<fff', nx, ny, nz))
@@ -199,13 +217,13 @@ class GLBBuilder:
                 "buffer": 0,
                 "byteOffset": norm_offset,
                 "byteLength": len(norm_bytes),
-                "target": 34962 # ARRAY_BUFFER
+                "target": 34962
             })
             norm_acc_idx = len(accessors)
             accessors.append({
                 "bufferView": norm_bv_idx,
                 "byteOffset": 0,
-                "componentType": 5126, # FLOAT
+                "componentType": 5126,
                 "count": len(n_list),
                 "type": "VEC3"
             })
@@ -220,11 +238,11 @@ class GLBBuilder:
             })
 
         gltf = {
-            "asset": {"version": "2.0", "generator": "OSRS Grand Exchange Guild GLB Generator"},
+            "asset": {"version": "2.0", "generator": "OSRS Grand Exchange Living Guild 3D"},
             "scene": 0,
             "scenes": [{"nodes": [0]}],
-            "nodes": [{"mesh": 0, "name": "OSRS_GrandExchangeHub"}],
-            "meshes": [{"name": "TownHubMesh", "primitives": mesh_primitives}],
+            "nodes": [{"mesh": 0, "name": "OSRS_GrandExchangeTown"}],
+            "meshes": [{"name": "GrandExchangeMesh", "primitives": mesh_primitives}],
             "materials": self.materials,
             "accessors": accessors,
             "bufferViews": buffer_views,
@@ -245,129 +263,202 @@ class GLBBuilder:
 
         return header + chunk0_header + json_bytes + chunk1_header + bin_data
 
+
 def generate():
-    builder = GLBBuilder()
+    b = GLBBuilder()
 
-    # OSRS Palettes
-    m_grass   = builder.add_material("Grass",   (0.25, 0.40, 0.16, 1.0), roughness=0.9)
-    m_stone   = builder.add_material("Stone",   (0.42, 0.39, 0.35, 1.0), roughness=0.8)
-    m_cobble  = builder.add_material("Cobble",  (0.35, 0.30, 0.25, 1.0), roughness=0.85)
-    m_timber  = builder.add_material("Timber",  (0.35, 0.22, 0.12, 1.0), roughness=0.7)
-    m_wood    = builder.add_material("Wood",    (0.48, 0.34, 0.20, 1.0), roughness=0.7)
-    m_roof    = builder.add_material("Roof",    (0.55, 0.18, 0.10, 1.0), roughness=0.6)
-    m_gold    = builder.add_material("Gold",    (1.00, 0.84, 0.00, 1.0), metallic=0.7, roughness=0.2)
-    m_rune    = builder.add_material("CyanRune",(0.00, 0.90, 1.00, 1.0), roughness=0.1)
-    m_water   = builder.add_material("Water",   (0.15, 0.40, 0.65, 0.8), roughness=0.1)
-    m_paper   = builder.add_material("Parchment",(0.85, 0.78, 0.62, 1.0), roughness=0.9)
-    m_foliage = builder.add_material("Foliage", (0.18, 0.32, 0.12, 1.0), roughness=0.9)
+    # OSRS Aesthetic Materials
+    m_grass     = b.add_material("Grass",      (0.24, 0.38, 0.15, 1.0), roughness=0.9)
+    m_stone     = b.add_material("Stone",      (0.42, 0.40, 0.36, 1.0), roughness=0.8)
+    m_darkstone = b.add_material("DarkStone",  (0.28, 0.26, 0.23, 1.0), roughness=0.8)
+    m_cobble    = b.add_material("Cobble",     (0.36, 0.32, 0.27, 1.0), roughness=0.85)
+    m_timber    = b.add_material("Timber",     (0.32, 0.20, 0.10, 1.0), roughness=0.7)
+    m_wood      = b.add_material("Wood",       (0.48, 0.33, 0.19, 1.0), roughness=0.7)
+    m_redroof   = b.add_material("RedRoof",    (0.56, 0.17, 0.11, 1.0), roughness=0.6)
+    m_blueroof  = b.add_material("BlueRoof",   (0.16, 0.28, 0.52, 1.0), roughness=0.5)
+    m_gold      = b.add_material("Gold",       (1.00, 0.84, 0.00, 1.0), metallic=0.7, roughness=0.2)
+    m_cyan_rune = b.add_material("CyanRune",   (0.00, 0.92, 1.00, 1.0), metallic=0.2, roughness=0.1)
+    m_water     = b.add_material("Water",      (0.12, 0.55, 0.78, 0.85), metallic=0.1, roughness=0.1)
+    m_parchment = b.add_material("Parchment",  (0.88, 0.80, 0.65, 1.0), roughness=0.9)
+    m_foliage   = b.add_material("Foliage",    (0.17, 0.32, 0.11, 1.0), roughness=0.9)
+    m_lantern   = b.add_material("LanternGlow",(1.00, 0.95, 0.40, 1.0), roughness=0.1)
+    m_crystal   = b.add_material("Crystal",    (0.70, 0.20, 0.90, 1.0), metallic=0.3, roughness=0.1)
+    # Character NPC Materials
+    m_skin      = b.add_material("Skin",       (0.85, 0.68, 0.52, 1.0), roughness=0.8)
+    m_tunic_blu = b.add_material("TunicBlue",  (0.15, 0.30, 0.65, 1.0), roughness=0.7)
+    m_tunic_grn = b.add_material("TunicGreen", (0.18, 0.48, 0.22, 1.0), roughness=0.7)
+    m_tunic_red = b.add_material("TunicRed",   (0.65, 0.15, 0.15, 1.0), roughness=0.7)
+    m_tunic_pur = b.add_material("TunicPurple",(0.45, 0.18, 0.58, 1.0), roughness=0.7)
+    m_cape_red  = b.add_material("CapeRed",    (0.75, 0.12, 0.12, 1.0), roughness=0.6)
+    m_cape_gold = b.add_material("CapeGold",   (0.95, 0.78, 0.10, 1.0), roughness=0.4)
+    m_cape_dark = b.add_material("CapeDark",   (0.15, 0.15, 0.18, 1.0), roughness=0.7)
 
-    # 1. Base Terrain: Ground plaza
-    # Outer grass field
-    builder.add_box(m_grass, 0, -0.4, 0, 32, 0.4, 32)
-    # Cobblestone courtyard
-    builder.add_cylinder(m_cobble, 0, -0.15, 0, 13.0, 0.2, segments=16)
-    # Inner decorative stone pathway
-    builder.add_cylinder(m_stone, 0, -0.05, 0, 7.5, 0.1, segments=16)
+    # -------------------------------------------------------------
+    # 1. BASE TERRAIN & GRAND EXCHANGE OCTAGONAL CENTRAL PLAZA
+    # -------------------------------------------------------------
+    # Outer grass courtyard
+    b.add_box(m_grass, 0, -0.4, 0, 36, 0.4, 36)
+    # Octagonal main plaza (approximated with 16-sided cylinder)
+    b.add_cylinder(m_cobble, 0, -0.15, 0, 14.0, 0.2, segments=16)
+    # Inner ornamental stone ring
+    b.add_cylinder(m_stone, 0, -0.04, 0, 8.5, 0.1, segments=16)
 
-    # 2. Central Grand Exchange Fountain / Pillar
-    # Fountain base pool
-    builder.add_cylinder(m_stone, 0, 0.25, 0, 3.2, 0.5, segments=12)
-    # Water surface
-    builder.add_cylinder(m_water, 0, 0.35, 0, 2.9, 0.2, segments=12)
-    # Central stone pedestal
-    builder.add_cylinder(m_stone, 0, 0.8, 0, 1.2, 1.2, segments=8)
-    # Grand Exchange Gold Emblem Ring
-    builder.add_cylinder(m_gold, 0, 1.8, 0, 0.8, 0.8, segments=8)
-    builder.add_box(m_gold, 0, 2.4, 0, 0.4, 0.4, 0.4)
+    # Central Grand Exchange Ornate Cyan Fountain
+    # Outer pool wall
+    b.add_cylinder(m_darkstone, 0, 0.25, 0, 3.8, 0.5, segments=12)
+    # Inner water pool
+    b.add_cylinder(m_water, 0, 0.36, 0, 3.4, 0.22, segments=12)
+    # Tier 2 stone basin
+    b.add_cylinder(m_stone, 0, 0.75, 0, 2.0, 0.6, segments=10)
+    b.add_cylinder(m_water, 0, 0.95, 0, 1.7, 0.18, segments=10)
+    # Tier 3 central glowing pillar
+    b.add_cylinder(m_stone, 0, 1.5, 0, 0.9, 1.2, segments=8)
+    # Center floating cyan power crystal / water spout
+    b.add_cone(m_cyan_rune, 0, 2.4, 0, 0.5, 0.8, segments=6)
+    b.add_cone(m_cyan_rune, 0, 1.9, 0, 0.5, -0.8, segments=6)
+    # 4 Gilded gargoyles / spouts on the fountain edge
+    for fx, fz in [(-2.2, 0), (2.2, 0), (0, -2.2), (0, 2.2)]:
+        b.add_box(m_gold, fx, 0.4, fz, 0.3, 0.3, 0.3)
 
-    # 3. NORTH-WEST: BOUNTY BOARD (Jobs / Quests)
-    # Located around (-6, 0, -6)
-    bx, bz = -6.5, -6.5
+    # -------------------------------------------------------------
+    # 2. THE 4 DISTINCT GUILD BUILDINGS AT PLAZA CORNERS
+    # -------------------------------------------------------------
+
+    # === [A] BOUNTY BOARD (NORTH-WEST: -7.0, -7.0) ===
+    # Medieval wooden notice board with scrolls, lantern post, wooden canopy
+    bx, bz = -7.2, -7.2
+    # Stone paved foundation
+    b.add_box(m_stone, bx, 0.15, bz, 4.4, 0.3, 3.2)
+    # Massive timber support posts
+    b.add_box(m_timber, bx - 1.5, 1.6, bz, 0.32, 2.8, 0.32)
+    b.add_box(m_timber, bx + 1.5, 1.6, bz, 0.32, 2.8, 0.32)
+    b.add_box(m_timber, bx, 2.9, bz, 3.4, 0.25, 0.25) # top crossbeam
+    # Central cork / oak board
+    b.add_box(m_wood, bx, 1.7, bz, 2.8, 1.8, 0.15)
+    # Shingled wooden roof canopy
+    b.add_box(m_redroof, bx, 3.2, bz, 3.8, 0.25, 1.2)
+    # Hanging Parchment Job Scrolls with wax seals
+    # Scroll 1
+    b.add_box(m_parchment, bx - 0.8, 1.8, bz + 0.10, 0.65, 0.9, 0.04)
+    b.add_box(m_redroof,   bx - 0.8, 2.2, bz + 0.12, 0.12, 0.12, 0.04) # red wax seal
+    # Scroll 2
+    b.add_box(m_parchment, bx, 1.5, bz + 0.10, 0.7, 0.75, 0.04)
+    b.add_box(m_gold,      bx, 1.8, bz + 0.12, 0.14, 0.14, 0.04) # gold wax seal
+    # Scroll 3
+    b.add_box(m_parchment, bx + 0.8, 1.9, bz + 0.10, 0.65, 0.95, 0.04)
+    b.add_box(m_cyan_rune, bx + 0.8, 2.3, bz + 0.12, 0.12, 0.12, 0.04) # cyan quest seal
+    # Lantern post beside board
+    b.add_box(m_timber, bx + 2.0, 1.2, bz + 0.8, 0.15, 2.2, 0.15)
+    b.add_box(m_gold,   bx + 2.0, 2.3, bz + 0.8, 0.25, 0.1, 0.25)
+    b.add_box(m_lantern,bx + 2.0, 2.1, bz + 0.8, 0.2, 0.3, 0.2)
+
+    # === [B] SCRIBE TOWER (NORTH-EAST: +7.2, -7.2) ===
+    # Tall wizard/scholar stone tower with peaked blue roof, glowing arcane windows, floating books
+    sx, sz = 7.2, -7.2
+    # Fortified stone base
+    b.add_box(m_darkstone, sx, 0.25, sz, 4.6, 0.5, 4.6)
+    # Lower tower shaft (stone blocks)
+    b.add_box(m_stone, sx, 2.4, sz, 3.6, 4.0, 3.6)
+    # Mid-tower overhanging scholar's gallery
+    b.add_box(m_timber, sx, 4.6, sz, 4.2, 0.4, 4.2)
+    # Upper observatory
+    b.add_box(m_stone, sx, 5.8, sz, 3.2, 2.2, 3.2)
+    # Peaked Wizard Blue conical roof
+    b.add_cone(m_blueroof, sx, 8.4, sz, 2.5, 3.2, segments=10)
+    # Spire weather vane & golden star
+    b.add_box(m_gold, sx, 10.2, sz, 0.12, 1.0, 0.12)
+    b.add_cone(m_gold, sx, 10.8, sz, 0.35, 0.5, segments=5)
+    # Glowing arcane windows (blue & gold)
+    b.add_box(m_cyan_rune, sx, 2.4, sz + 1.83, 0.7, 1.2, 0.08)
+    b.add_box(m_cyan_rune, sx, 5.8, sz + 1.63, 0.6, 0.9, 0.08)
+    b.add_box(m_cyan_rune, sx + 1.83, 2.4, sz, 0.08, 1.2, 0.7)
+    # Arch entryway
+    b.add_box(m_timber, sx - 0.8, 0.9, sz + 1.83, 0.9, 1.6, 0.1)
+    # Floating arcane book geometry at side
+    b.add_box(m_gold, sx - 1.8, 1.8, sz + 1.4, 0.45, 0.08, 0.35) # Book cover
+    b.add_box(m_parchment, sx - 1.8, 1.85, sz + 1.4, 0.4, 0.08, 0.32) # Pages
+
+    # === [C] SKILL ALTAR (SOUTH-WEST: -7.2, +7.2) ===
+    # Ancient Runecrafting stone ruin with glowing obelisks & floating crystal above altar table
+    ax, az = -7.2, 7.2
+    # 3-tier stepped ziggurat base
+    b.add_box(m_darkstone, ax, 0.2, az, 5.2, 0.4, 5.2)
+    b.add_box(m_stone,     ax, 0.55, az, 4.2, 0.35, 4.2)
+    b.add_box(m_stone,     ax, 0.85, az, 3.2, 0.3, 3.2)
+    # Altar Table
+    b.add_box(m_darkstone, ax, 1.3, az, 1.8, 0.65, 1.8)
+    # Mystical rune engraving on altar slab
+    b.add_box(m_cyan_rune, ax, 1.66, az, 1.3, 0.08, 1.3)
+    # Floating magical crystal cluster above altar
+    b.add_cone(m_crystal, ax, 2.6, az, 0.45, 0.9, segments=6)
+    b.add_cone(m_crystal, ax, 2.0, az, 0.45, -0.9, segments=6)
+    # 4 Corner Mystical Obelisks with glowing energy tips
+    for ox, oz in [(-1.8, -1.8), (1.8, -1.8), (-1.8, 1.8), (1.8, 1.8)]:
+        b.add_box(m_stone,     ax + ox, 1.2, az + oz, 0.55, 2.0, 0.55)
+        b.add_box(m_darkstone, ax + ox, 2.3, az + oz, 0.45, 0.4, 0.45)
+        b.add_cone(m_cyan_rune,ax + ox, 2.9, az + oz, 0.35, 0.8, segments=4)
+
+    # === [D] COURIER GUILD (SOUTH-EAST: +7.2, +7.2) ===
+    # Dispatch depot / post office with crates, scrolls, banners, gilded pigeon coop roof
+    cx, cz = 7.2, 7.2
     # Stone foundation
-    builder.add_box(m_stone, bx, 0.1, bz, 3.4, 0.2, 2.0)
-    # Timber posts
-    builder.add_box(m_timber, bx - 1.2, 1.3, bz, 0.25, 2.4, 0.25)
-    builder.add_box(m_timber, bx + 1.2, 1.3, bz, 0.25, 2.4, 0.25)
-    # Main notice board
-    builder.add_box(m_wood, bx, 1.5, bz, 2.3, 1.4, 0.12)
-    # Small pitched roof
-    builder.add_box(m_roof, bx, 2.3, bz, 2.7, 0.2, 0.6)
-    # Parchment Quest Scrolls / Job bounties
-    builder.add_box(m_paper, bx - 0.6, 1.6, bz + 0.08, 0.5, 0.7, 0.04)
-    builder.add_box(m_gold, bx - 0.6, 1.9, bz + 0.10, 0.1, 0.1, 0.04) # gold wax seal
-    builder.add_box(m_paper, bx + 0.5, 1.5, bz + 0.08, 0.6, 0.8, 0.04)
-    builder.add_box(m_gold, bx + 0.5, 1.85, bz + 0.10, 0.1, 0.1, 0.04)
-    builder.add_box(m_paper, bx, 1.3, bz + 0.08, 0.5, 0.5, 0.04)
+    b.add_box(m_stone, cx, 0.2, cz, 4.8, 0.4, 4.8)
+    # Timbered guildhouse body
+    b.add_box(m_wood, cx, 1.7, cz, 4.0, 2.8, 3.8)
+    # Half-timbered cross beams
+    b.add_box(m_timber, cx, 1.7, cz + 1.93, 4.05, 0.18, 0.06)
+    b.add_box(m_timber, cx, 2.7, cz + 1.93, 4.05, 0.18, 0.06)
+    b.add_box(m_timber, cx - 1.2, 1.7, cz + 1.93, 0.18, 2.8, 0.06)
+    b.add_box(m_timber, cx + 1.2, 1.7, cz + 1.93, 0.18, 2.8, 0.06)
+    # Gable roof (Varrock Red)
+    b.add_box(m_redroof, cx, 3.5, cz, 4.4, 0.9, 4.2)
+    # Gilded pigeon coop / attic dispatch tower on roof
+    b.add_box(m_timber, cx, 4.3, cz, 1.6, 0.9, 1.6)
+    b.add_cone(m_gold,   cx, 5.2, cz, 1.2, 1.0, segments=6)
+    # Porch awning and support posts
+    b.add_box(m_timber, cx - 1.6, 1.2, cz + 2.5, 0.18, 2.2, 0.18)
+    b.add_box(m_timber, cx + 1.6, 1.2, cz + 2.5, 0.18, 2.2, 0.18)
+    b.add_box(m_redroof,cx, 2.3, cz + 2.3, 3.8, 0.15, 1.2)
+    # Stacked delivery crates & parcels on the porch
+    b.add_box(m_timber,    cx - 0.8, 0.45, cz + 2.3, 0.6, 0.55, 0.6)
+    b.add_box(m_wood,      cx - 0.8, 0.85, cz + 2.3, 0.45, 0.45, 0.45)
+    b.add_box(m_parchment, cx + 0.7, 0.38, cz + 2.4, 0.5, 0.4, 0.5)
+    b.add_box(m_gold,      cx + 0.7, 0.45, cz + 2.4, 0.52, 0.06, 0.52) # gold binding string
 
-    # 4. NORTH-EAST: SCRIBE TOWER (Resume Forge & Cover Letter)
-    # Located around (6.5, 0, -6.5)
-    tx, tz = 6.5, -6.5
-    # Base foundation
-    builder.add_box(m_stone, tx, 0.2, tz, 4.0, 0.4, 4.0)
-    # Lower stone tower body
-    builder.add_box(m_stone, tx, 2.2, tz, 3.2, 3.6, 3.2)
-    # Balcony trim
-    builder.add_box(m_timber, tx, 4.1, tz, 3.6, 0.3, 3.6)
-    # Upper tower
-    builder.add_box(m_stone, tx, 5.2, tz, 2.8, 2.0, 2.8)
-    # Scribe Tower pointed roof
-    builder.add_cone(m_roof, tx, 7.3, tz, 2.2, 2.2, segments=8)
-    # Golden Quill / Weather vane on top
-    builder.add_box(m_gold, tx, 8.6, tz, 0.15, 0.6, 0.15)
-    # Wooden door & parchment banner
-    builder.add_box(m_timber, tx - 1.2, 0.9, tz + 1.65, 0.9, 1.6, 0.1)
-    builder.add_box(m_paper, tx + 0.5, 2.5, tz + 1.65, 1.2, 1.8, 0.05)
+    # -------------------------------------------------------------
+    # 3. LIVING TOWN NPCS / AVATARS (6 Adventurers on Walkways)
+    # -------------------------------------------------------------
+    # 1. Wizard near Scribe Tower
+    b.add_character(4.5, 0.0, -4.5, m_tunic_blu, m_cape_gold, m_skin, rot_y=math.pi * 0.75)
+    # 2. Warrior near Bounty Board
+    b.add_character(-4.5, 0.0, -4.5, m_tunic_red, m_cape_dark, m_skin, rot_y=math.pi * 0.25)
+    # 3. Mystic near Skill Altar
+    b.add_character(-4.5, 0.0, 4.5, m_tunic_pur, m_cyan_rune, m_skin, rot_y=-math.pi * 0.25)
+    # 4. Courier Scout near Courier Guild
+    b.add_character(4.5, 0.0, 4.5, m_tunic_grn, m_cape_red, m_skin, rot_y=-math.pi * 0.75)
+    # 5. Adventurer inspecting central fountain
+    b.add_character(0.0, 0.0, -4.2, m_tunic_blu, m_cape_red, m_skin, rot_y=0.0)
+    # 6. Trader walking southern path
+    b.add_character(0.0, 0.0, 4.2, m_tunic_grn, m_cape_dark, m_skin, rot_y=math.pi)
 
-    # 5. SOUTH-WEST: SKILL ALTAR (Dynamic Skill Matrix)
-    # Located around (-6.5, 0, 6.5)
-    ax, az = -6.5, 6.5
-    # 3-tier stepped stone pyramid / altar
-    builder.add_box(m_stone, ax, 0.15, az, 4.4, 0.3, 4.4)
-    builder.add_box(m_stone, ax, 0.45, az, 3.6, 0.3, 3.6)
-    builder.add_box(m_stone, ax, 0.75, az, 2.8, 0.3, 2.8)
-    # Center Altar table
-    builder.add_box(m_cobble, ax, 1.2, az, 1.6, 0.6, 1.6)
-    # Altar glowing rune center slab
-    builder.add_box(m_rune, ax, 1.55, az, 1.2, 0.1, 1.2)
-    # 4 Corner Obelisk Pillars with glowing cyan runes
-    for ox, oz in [(-1.5, -1.5), (1.5, -1.5), (-1.5, 1.5), (1.5, 1.5)]:
-        builder.add_box(m_stone, ax + ox, 1.0, az + oz, 0.45, 1.8, 0.45)
-        builder.add_cone(m_rune, ax + ox, 2.1, az + oz, 0.3, 0.5, segments=4)
+    # -------------------------------------------------------------
+    # 4. DECORATIVE OSRS TREES & ENVIRONMENT PROPS
+    # -------------------------------------------------------------
+    tree_locs = [
+        (-12, -3), (-12, 3), (12, -3), (12, 3),
+        (-3, -12), (3, -12), (-3, 12), (3, 12),
+        (-11, -11), (11, -11), (-11, 11), (11, 11)
+    ]
+    for tx, tz in tree_locs:
+        b.add_cylinder(m_timber, tx, 0.8, tz, 0.28, 1.6, segments=6)
+        b.add_cone(m_foliage, tx, 2.1, tz, 1.5, 1.8, segments=7)
+        b.add_cone(m_foliage, tx, 3.1, tz, 1.1, 1.4, segments=6)
 
-    # 6. SOUTH-EAST: COURIER GUILD (Auto-Apply Queue & Ledger)
-    # Located around (6.5, 0, 6.5)
-    cx, cz = 6.5, 6.5
-    # Stone footing
-    builder.add_box(m_stone, cx, 0.15, cz, 4.2, 0.3, 4.2)
-    # Timber wall body
-    builder.add_box(m_wood, cx, 1.6, cz, 3.6, 2.6, 3.4)
-    # Wooden cross-beams (half-timbered style)
-    builder.add_box(m_timber, cx, 1.6, cz + 1.72, 3.65, 0.15, 0.05)
-    builder.add_box(m_timber, cx, 2.6, cz + 1.72, 3.65, 0.15, 0.05)
-    # Slanted roof
-    builder.add_box(m_roof, cx, 3.3, cz, 4.0, 0.8, 3.8)
-    # Courier porch awning & posts
-    builder.add_box(m_timber, cx - 1.4, 1.1, cz + 2.2, 0.15, 2.0, 0.15)
-    builder.add_box(m_timber, cx + 1.4, 1.1, cz + 2.2, 0.15, 2.0, 0.15)
-    builder.add_box(m_roof, cx, 2.1, cz + 2.0, 3.4, 0.15, 1.0)
-    # Courier parcel / crates on the porch
-    builder.add_box(m_wood, cx - 0.7, 0.4, cz + 2.0, 0.5, 0.5, 0.5)
-    builder.add_box(m_paper, cx + 0.6, 0.3, cz + 2.0, 0.4, 0.4, 0.4)
-
-    # 7. Decorative low-poly OSRS Trees along courtyard borders
-    tree_positions = [(-11, -2), (-11, 4), (11, -3), (11, 4), (-2, -11), (3, -11), (-2, 11), (3, 11)]
-    for tx, tz in tree_positions:
-        # Trunk
-        builder.add_cylinder(m_timber, tx, 0.8, tz, 0.25, 1.6, segments=6)
-        # Foliage cones
-        builder.add_cone(m_foliage, tx, 2.0, tz, 1.4, 1.6, segments=7)
-        builder.add_cone(m_foliage, tx, 2.9, tz, 1.0, 1.4, segments=6)
-
-    glb_bytes = builder.build_glb()
+    glb_bytes = b.build_glb()
     out_path = "app/src/main/assets/models/osrs_guild.glb"
     with open(out_path, "wb") as f:
         f.write(glb_bytes)
-    print(f"Generated {out_path} ({len(glb_bytes)} bytes)")
+    print(f"Successfully generated {out_path} ({len(glb_bytes)} bytes)")
 
 if __name__ == "__main__":
     generate()

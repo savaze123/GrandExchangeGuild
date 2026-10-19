@@ -48,7 +48,13 @@
       "id": "UI_SPLIT_SCAFFOLD",
       "type": "Presentation",
       "tech": "Jetpack Compose ListDetailPaneScaffold + ViewModel",
-      "role": "Left pane hosts 120Hz Filament 3D OSRS Career Guild; Right pane hosts Job Dashboard, OSRS Skill Tree, Resume Diff Viewer, and Agent Logs."
+      "role": "Left pane hosts 120Hz Filament 3D OSRS Career Guild; Right pane hosts Job Dashboard, OSRS Skill Tree, Resume Diff Viewer, and Agent Logs.",
+      "status": "COMPLETED",
+      "completed_in": "feature/di-skill-altar",
+      "completed_files": [
+        "GuildScaffold.kt",
+        "DashboardPane.kt"
+      ]
     },
     {
       "id": "UI_3D_GUILD_HUB",
@@ -142,7 +148,13 @@
       "id": "RESUME_FORGE_PDF",
       "type": "Document_Engine",
       "tech": "Android Native PdfDocument API (UTF-8 Type-1 Fonts)",
-      "role": "Tailors resume & cover letter using active skills from DYNAMIC_SKILL_MATRIX + job description. Outputs stripped, single-column ATS-verified PDFs (<100KB)."
+      "role": "Tailors resume & cover letter using active skills from DYNAMIC_SKILL_MATRIX + job description. Outputs stripped, single-column ATS-verified PDFs (<100KB).",
+      "status": "COMPLETED",
+      "completed_in": "feature/di-skill-altar",
+      "completed_files": [
+        "ResumeForgePdfGenerator.kt",
+        "ScribeTowerScreen.kt"
+      ]
     },
     {
       "id": "AUTO_APPLY_AGENT",

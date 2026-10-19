@@ -3,6 +3,8 @@ package com.osrs.careerguild.presentation.dashboard.skillaltar
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,11 +15,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -35,6 +39,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SnackbarHost
@@ -91,7 +97,9 @@ private val OsrsTextDim    = Color(0xFF9E8A6A)  // dimmed text for inactive tile
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SkillAltarScreen(
-    viewModel: SkillAltarViewModel,
+    viewModel     : SkillAltarViewModel,
+    isSinglePane  : Boolean = false,
+    onNavigateBack: () -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -117,26 +125,67 @@ fun SkillAltarScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // --- Top bar ---
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text  = "⚗ Skill Altar",
-                            style = androidx.compose.material3.MaterialTheme.typography.titleMedium
-                                .copy(fontWeight = FontWeight.Bold),
-                            color = OsrsGold,
-                        )
-                        if (!uiState.isLoading) {
+            // --- Lowered OSRS Header with visible borders ---
+            Surface(
+                shape  = RoundedCornerShape(8.dp),
+                color  = OsrsBrown.copy(alpha = 0.95f),
+                border = BorderStroke(2.dp, OsrsGold),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(top = 12.dp, start = 12.dp, end = 12.dp, bottom = 4.dp)
+                    .border(
+                        1.dp,
+                        OsrsDarkBorder,
+                        RoundedCornerShape(8.dp)
+                    ),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        if (isSinglePane) {
+                            OutlinedButton(
+                                onClick = onNavigateBack,
+                                shape   = RoundedCornerShape(6.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                border  = BorderStroke(1.dp, OsrsGold),
+                                colors  = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = OsrsStone,
+                                ),
+                                modifier = Modifier.padding(end = 8.dp),
+                            ) {
+                                Text(
+                                    text  = "← Back to Guild",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = OsrsGold,
+                                )
+                            }
+                        }
+                        Column {
                             Text(
-                                text  = "${uiState.activeCount} active · ${uiState.totalCount} total",
-                                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-                                color = OsrsGold.copy(alpha = 0.7f),
+                                text  = "⚗ Skill Altar",
+                                style = MaterialTheme.typography.titleMedium
+                                    .copy(fontWeight = FontWeight.Bold),
+                                color = OsrsGold,
                             )
+                            if (!uiState.isLoading) {
+                                Text(
+                                    text  = "${uiState.activeCount} active · ${uiState.totalCount} total",
+                                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                                    color = OsrsGold.copy(alpha = 0.7f),
+                                )
+                            }
                         }
                     }
-                },
-                actions = {
+
                     IconButton(onClick = viewModel::toggleAddSkillPanel) {
                         Icon(
                             imageVector        = if (uiState.isAddSkillExpanded)
@@ -145,11 +194,8 @@ fun SkillAltarScreen(
                             tint               = OsrsGold,
                         )
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = OsrsBrown,
-                ),
-            )
+                }
+            }
 
             // --- Add Skill expandable panel ---
             AnimatedVisibility(

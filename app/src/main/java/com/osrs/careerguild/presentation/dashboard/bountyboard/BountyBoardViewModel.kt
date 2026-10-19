@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -53,8 +54,13 @@ class BountyBoardViewModel(
     init {
         observeJobs()
         observeActiveSkills()
-        // Surface budget status immediately so the UI can warn the user
         _uiState.update { it.copy(isGeminiAllowed = tokenGovernor.isGeminiAllowed) }
+        viewModelScope.launch {
+            val existing = jobRepository.observeAll().firstOrNull()
+            if (existing.isNullOrEmpty()) {
+                refresh()
+            }
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -69,13 +75,15 @@ class BountyBoardViewModel(
                 }
                 .collectLatest { jobs ->
                     _uiState.update { state ->
-                        val query = state.searchQuery
+                        val query = state.searchQuery.trim()
                         val activeSkillNames = state.activeSkills.filter { it.isActive }.map { it.name.lowercase() }
                         val filtered = jobs.filter { j ->
-                            // Text search
+                            // Text search: matches title, company, or any matched skill tag
                             val matchesQuery = query.isBlank() ||
                                 j.title.contains(query, ignoreCase = true) ||
-                                j.company.contains(query, ignoreCase = true)
+                                j.company.contains(query, ignoreCase = true) ||
+                                j.matchedSkills.any { it.contains(query, ignoreCase = true) }
+
                             // Active skill filter — show job if it matches any active skill or if no active skills are set
                             val matchesSkill = activeSkillNames.isEmpty() ||
                                 j.matchedSkills.any { ms -> activeSkillNames.any { s -> ms.lowercase().contains(s) } } ||
