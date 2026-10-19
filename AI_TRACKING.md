@@ -46,47 +46,33 @@
 
 ## 3. Known Blockers / Errors
 
-### ⛔ BLOCKER: Gradle compilation check could not be executed
+### ✅ RESOLVED: ML Kit Text Recognition Artifact Coordinate
+- **Issue:** `com.google.android.gms:play-services-mlkit-text-recognition:16.0.1` failed to resolve on Google Maven.
+- **Resolution:** Updated `gradle/libs.versions.toml` to `mlkitTextRecognition = "19.0.1"`. Dependency now resolves successfully.
 
-**Environment:** Asahi Linux (Fedora 44 aarch64)  
-**Java Version:** OpenJDK 25.0.4.1 (Red Hat) — only Java 25 and Java 27-ea available on this machine  
-**Gradle Version Attempted:** 8.14 / 8.14.6  
+### ✅ RESOLVED: Gradle Toolchain Compatibility
+- **Issue:** Kotlin 2.1.0 IntelliJ version parser threw `IllegalArgumentException: 25.0.4.1` on OpenJDK 25.
+- **Resolution:** Bootstrapped Gradle 9.8.1 wrapper supporting Java 25.
 
-**Exact Error (from daemon log):**
+### ⛔ CURRENT BLOCKER: AAPT2 Execution on Asahi Linux (aarch64 16K Page Size)
+- **Environment:** Asahi Linux (Fedora 44 aarch64, 16K kernel page size)
+- **Task:** `:app:processDebugResources` (required for Kotlin compilation R-class generation)
+- **Exact Error:**
 ```
-java.lang.IllegalArgumentException: 25.0.4.1
-    at org.jetbrains.kotlin.com.intellij.util.lang.JavaVersion.parse(JavaVersion.java:307)
-    at org.jetbrains.kotlin.com.intellij.util.lang.JavaVersion.current(JavaVersion.java:176)
-    at org.jetbrains.kotlin.cli.jvm.modules.JavaVersionUtilsKt.isAtLeastJava9(javaVersionUtils.kt:11)
+AAPT2 aapt2-8.8.0-12006047-linux Daemon #0: Unexpected error output: [binfmt_dispatcher] Using FEX with muvm
+Execution failed for task ':app:processDebugResources'.
+> AAPT2 aapt2-8.8.0-12006047-linux Daemon #0: Daemon startup failed
 ```
-
-**Root Cause:** Kotlin 2.1.0's bundled IntelliJ platform `JavaVersion` parser does not support Java 25+ version strings. The parser fails at script compilation stage before any Kotlin source files are touched.
-
-**No gradlew exists** in the repo — the project has never been built on this machine.
-
-### ✅ Resolution for Next Session
-
-**Option A (Recommended):** Install Java 17 or Java 21 and set `JAVA_HOME`:
-```bash
-sudo dnf install java-17-openjdk-devel   # or java-21-openjdk-devel
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
-export PATH=$JAVA_HOME/bin:$PATH
-# Then bootstrap the wrapper:
-gradle wrapper --gradle-version=8.14.6 --distribution-type=bin
-./gradlew compileDebugKotlin -q
-```
-
-**Option B:** Upgrade to Kotlin 2.2+ (requires AGP version check) which fixes Java 25+ version parsing.  
-**AGP used:** `8.8.0` — check compatibility before upgrading Kotlin.
-
-**Option C:** Use Android Studio on a device/machine with Java 17/21 to do the first build + gradlew generation.
+- **Root Cause:**
+  Google only ships x86_64 Linux binaries for `aapt2`. Because the Asahi Linux host uses a 16K page size kernel, x86_64 binaries (using jemalloc 4K pages) cannot execute natively in FEX userspace and must run via `muvm` (microVM).
+  During AAPT2 daemon startup, `binfmt_dispatcher` / `muvm` emits status messages to stderr/stdout (`[binfmt_dispatcher] Using FEX with muvm`, `Failed to set the new pressure in the guest...`). Any stderr output during daemon startup causes Android Gradle Plugin to abort with `Unexpected error output: Daemon startup failed`.
 
 ---
 
 ## 4. Next Session — Resumption Checklist
 
-1. Install Java 17/21, re-run `./gradlew compileDebugKotlin -q`.
-2. If compilation errors exist, fix them (max 2 attempts per the project rules).
+1. Configure silent AAPT2 execution under `muvm` or provide an aarch64 native `aapt2` binary.
+2. Re-run `./gradlew compileDebugKotlin -q`.
 3. Next modules to implement per `project_graph.json`:
    - `SCREENSHOT_OCR_HUNTER` — ML Kit OCR + screenshot picker
    - `RESUME_FORGE_PDF` — Native `PdfDocument` resume/cover-letter generator
