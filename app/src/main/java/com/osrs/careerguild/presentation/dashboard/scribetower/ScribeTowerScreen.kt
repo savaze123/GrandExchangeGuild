@@ -474,7 +474,7 @@ private fun AtsParchmentPreview(
                 color = Color(0xFF1E3A4A),
             )
             Text(
-                text = "San Francisco, CA · savazek.dev · github.com/savazek · linkedin.com/in/savazek",
+                text = "Valley Stream, NY · savaze123.dev · github.com/savaze123 · savizwork@gmail.com",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.DarkGray,
             )

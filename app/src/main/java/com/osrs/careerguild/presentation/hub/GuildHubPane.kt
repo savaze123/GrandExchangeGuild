@@ -77,6 +77,7 @@ private val OsrsCyan       = Color(0xFF00E5FF)
 @Composable
 fun GuildHubPane(
     onBuildingSelected: (GuildBuilding) -> Unit,
+    showBottomDock: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     // Isometric camera parameters
@@ -111,7 +112,7 @@ fun GuildHubPane(
             modifier = Modifier.fillMaxSize(),
         )
 
-        // 3. Overlaid UI Controls (Lowered Header + Bottom Quick-Travel Dock)
+        // 3. Overlaid UI Controls (Lowered Header + Optional Bottom Quick-Travel Dock)
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -123,9 +124,11 @@ fun GuildHubPane(
             GuildHeaderBanner()
 
             // Bottom Building Navigation Dock
-            GuildBuildingDock(
-                onBuildingSelected = onBuildingSelected,
-            )
+            if (showBottomDock) {
+                GuildBuildingDock(
+                    onBuildingSelected = onBuildingSelected,
+                )
+            }
         }
     }
 }

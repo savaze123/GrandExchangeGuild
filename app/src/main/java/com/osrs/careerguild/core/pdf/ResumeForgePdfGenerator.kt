@@ -94,7 +94,7 @@ object ResumeForgePdfGenerator {
         y += 16f
         canvas.drawText("Target Quest: $targetTitle at $targetCompany", leftMargin, y, boldBodyPaint)
         y += 14f
-        canvas.drawText("San Francisco, CA · savazek.dev · github.com/savazek · linkedin.com/in/savazek", leftMargin, y, subtitlePaint)
+        canvas.drawText("Valley Stream, NY · savaze123.dev · github.com/savaze123 · savizwork@gmail.com", leftMargin, y, subtitlePaint)
         y += 18f
         canvas.drawLine(leftMargin, y, leftMargin + contentWidth, y, linePaint)
         y += 20f
@@ -125,7 +125,7 @@ object ResumeForgePdfGenerator {
         // Role 1
         canvas.drawText("Senior Software & AI Engineer  |  Grand Exchange Guild", leftMargin, y, boldBodyPaint)
         y += 12f
-        canvas.drawText("Jan 2024 – Present  ·  San Francisco, CA", leftMargin, y, subtitlePaint)
+        canvas.drawText("Jan 2024 – Present  ·  Valley Stream, NY", leftMargin, y, subtitlePaint)
         y += 14f
         val bullets1 = listOf(
             "Architected 120Hz Filament 3D rendering pipeline and reactive MVI Compose client on Android (Tensor G5, 16KB ELF alignment).",
