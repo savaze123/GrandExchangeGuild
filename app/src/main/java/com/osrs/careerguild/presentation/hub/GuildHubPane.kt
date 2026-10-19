@@ -134,36 +134,43 @@ fun GuildHubPane(
 }
 
 /**
- * Header banner displaying 'Grand Exchange Career Build', lowered below status bar
- * with visible dual-layer OSRS gold and dark borders.
+ * Header banner displaying DBZ x RuneScape Career Guild & Google OAuth2 status,
+ * lowered below status bar with dual-layer Super Saiyan gold and Toriyama dark borders.
  */
 @Composable
 private fun GuildHeaderBanner() {
     Surface(
-        shape  = RoundedCornerShape(8.dp),
+        shape  = RoundedCornerShape(10.dp),
         color  = OsrsDarkStone.copy(alpha = 0.94f),
         border = BorderStroke(2.dp, OsrsGold),
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, OsrsDarkBorder, RoundedCornerShape(8.dp)),
+            .border(1.dp, OsrsDarkBorder, RoundedCornerShape(10.dp)),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(
-                text = "⚔ Grand Exchange Career Build",
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp,
-                ),
-                color = OsrsGold,
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = "Living 3D Town Hub • 120Hz Filament Engine • Drag to Orbit",
-                style = MaterialTheme.typography.labelSmall,
-                color = OsrsTextDim,
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "⚔ Grand Exchange Career Guild",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp,
+                    ),
+                    color = OsrsGold,
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "DBZ x RuneScape 3D Hub • 120Hz Filament • Valley Stream, NY",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OsrsCyan,
+                )
+            }
+            com.osrs.careerguild.presentation.auth.GoogleAuthBadge()
         }
     }
 }

@@ -267,31 +267,41 @@ class GLBBuilder:
 def generate():
     b = GLBBuilder()
 
-    # OSRS Aesthetic Materials
-    m_grass     = b.add_material("Grass",      (0.24, 0.38, 0.15, 1.0), roughness=0.9)
-    m_stone     = b.add_material("Stone",      (0.42, 0.40, 0.36, 1.0), roughness=0.8)
-    m_darkstone = b.add_material("DarkStone",  (0.28, 0.26, 0.23, 1.0), roughness=0.8)
-    m_cobble    = b.add_material("Cobble",     (0.36, 0.32, 0.27, 1.0), roughness=0.85)
-    m_timber    = b.add_material("Timber",     (0.32, 0.20, 0.10, 1.0), roughness=0.7)
-    m_wood      = b.add_material("Wood",       (0.48, 0.33, 0.19, 1.0), roughness=0.7)
-    m_redroof   = b.add_material("RedRoof",    (0.56, 0.17, 0.11, 1.0), roughness=0.6)
-    m_blueroof  = b.add_material("BlueRoof",   (0.16, 0.28, 0.52, 1.0), roughness=0.5)
-    m_gold      = b.add_material("Gold",       (1.00, 0.84, 0.00, 1.0), metallic=0.7, roughness=0.2)
-    m_cyan_rune = b.add_material("CyanRune",   (0.00, 0.92, 1.00, 1.0), metallic=0.2, roughness=0.1)
-    m_water     = b.add_material("Water",      (0.12, 0.55, 0.78, 0.85), metallic=0.1, roughness=0.1)
-    m_parchment = b.add_material("Parchment",  (0.88, 0.80, 0.65, 1.0), roughness=0.9)
-    m_foliage   = b.add_material("Foliage",    (0.17, 0.32, 0.11, 1.0), roughness=0.9)
-    m_lantern   = b.add_material("LanternGlow",(1.00, 0.95, 0.40, 1.0), roughness=0.1)
-    m_crystal   = b.add_material("Crystal",    (0.70, 0.20, 0.90, 1.0), metallic=0.3, roughness=0.1)
+    # OSRS & DBZ Fusion Aesthetic Materials
+    m_grass       = b.add_material("Grass",          (0.20, 0.35, 0.12, 1.0), roughness=0.9)
+    m_stone       = b.add_material("Stone",          (0.42, 0.40, 0.36, 1.0), roughness=0.8)
+    m_darkstone   = b.add_material("DarkStone",      (0.28, 0.26, 0.23, 1.0), roughness=0.8)
+    m_cobble      = b.add_material("Cobble",         (0.36, 0.32, 0.27, 1.0), roughness=0.85)
+    m_timber      = b.add_material("Timber",         (0.32, 0.20, 0.10, 1.0), roughness=0.7)
+    m_wood        = b.add_material("Wood",           (0.48, 0.33, 0.19, 1.0), roughness=0.7)
+    m_redroof     = b.add_material("RedRoof",        (0.56, 0.17, 0.11, 1.0), roughness=0.6)
+    m_blueroof    = b.add_material("BlueRoof",       (0.12, 0.25, 0.58, 1.0), roughness=0.5)
+    m_gold        = b.add_material("Gold",           (1.00, 0.84, 0.00, 1.0), metallic=0.7, roughness=0.2)
+    m_cyan_rune   = b.add_material("CyanRune",       (0.00, 0.92, 1.00, 1.0), metallic=0.2, roughness=0.1)
+    m_water       = b.add_material("Water",          (0.12, 0.55, 0.78, 0.85), metallic=0.1, roughness=0.1)
+    m_parchment   = b.add_material("Parchment",      (0.88, 0.80, 0.65, 1.0), roughness=0.9)
+    m_foliage     = b.add_material("Foliage",        (0.17, 0.32, 0.11, 1.0), roughness=0.9)
+    m_lantern     = b.add_material("LanternGlow",    (1.00, 0.95, 0.40, 1.0), roughness=0.1)
+    m_crystal     = b.add_material("Crystal",        (0.70, 0.20, 0.90, 1.0), metallic=0.3, roughness=0.1)
+    
+    # DBZ Cel-Shaded Energy Materials
+    m_saiyan_aura = b.add_material("SuperSaiyanKi",  (1.00, 0.92, 0.15, 1.0), metallic=0.4, roughness=0.1)
+    m_kamehameha  = b.add_material("KamehamehaBlue", (0.00, 0.88, 1.00, 1.0), metallic=0.5, roughness=0.05)
+    m_dragonball  = b.add_material("DragonBallAmber",(1.00, 0.48, 0.04, 1.0), metallic=0.3, roughness=0.15)
+    m_star_red    = b.add_material("DragonStarRed",  (0.88, 0.08, 0.08, 1.0), roughness=0.3)
+    m_namek_green = b.add_material("NamekianGreen",  (0.10, 0.86, 0.36, 1.0), roughness=0.3)
+    m_turtle_gi   = b.add_material("TurtleGiOrange", (0.95, 0.38, 0.06, 1.0), roughness=0.7)
+    m_saiyan_hair = b.add_material("SuperSaiyanHair",(1.00, 0.95, 0.30, 1.0), metallic=0.2, roughness=0.3)
+
     # Character NPC Materials
-    m_skin      = b.add_material("Skin",       (0.85, 0.68, 0.52, 1.0), roughness=0.8)
-    m_tunic_blu = b.add_material("TunicBlue",  (0.15, 0.30, 0.65, 1.0), roughness=0.7)
-    m_tunic_grn = b.add_material("TunicGreen", (0.18, 0.48, 0.22, 1.0), roughness=0.7)
-    m_tunic_red = b.add_material("TunicRed",   (0.65, 0.15, 0.15, 1.0), roughness=0.7)
-    m_tunic_pur = b.add_material("TunicPurple",(0.45, 0.18, 0.58, 1.0), roughness=0.7)
-    m_cape_red  = b.add_material("CapeRed",    (0.75, 0.12, 0.12, 1.0), roughness=0.6)
-    m_cape_gold = b.add_material("CapeGold",   (0.95, 0.78, 0.10, 1.0), roughness=0.4)
-    m_cape_dark = b.add_material("CapeDark",   (0.15, 0.15, 0.18, 1.0), roughness=0.7)
+    m_skin        = b.add_material("Skin",           (0.85, 0.68, 0.52, 1.0), roughness=0.8)
+    m_tunic_blu   = b.add_material("TunicBlue",      (0.12, 0.25, 0.65, 1.0), roughness=0.7)
+    m_tunic_grn   = b.add_material("TunicGreen",     (0.18, 0.48, 0.22, 1.0), roughness=0.7)
+    m_tunic_red   = b.add_material("TunicRed",       (0.65, 0.15, 0.15, 1.0), roughness=0.7)
+    m_tunic_pur   = b.add_material("TunicPurple",    (0.45, 0.18, 0.58, 1.0), roughness=0.7)
+    m_cape_red    = b.add_material("CapeRed",        (0.75, 0.12, 0.12, 1.0), roughness=0.6)
+    m_cape_gold   = b.add_material("CapeGold",       (0.95, 0.78, 0.10, 1.0), roughness=0.4)
+    m_cape_dark   = b.add_material("CapeDark",       (0.15, 0.15, 0.18, 1.0), roughness=0.7)
 
     # -------------------------------------------------------------
     # 1. BASE TERRAIN & GRAND EXCHANGE OCTAGONAL CENTRAL PLAZA
@@ -316,9 +326,29 @@ def generate():
     # Center floating cyan power crystal / water spout
     b.add_cone(m_cyan_rune, 0, 2.4, 0, 0.5, 0.8, segments=6)
     b.add_cone(m_cyan_rune, 0, 1.9, 0, 0.5, -0.8, segments=6)
+    # Super Saiyan Ki Aura Energy Rings (DBZ Cel-Shaded)
+    b.add_cylinder(m_saiyan_aura, 0, 2.1, 0, 2.6, 0.08, segments=16)
+    b.add_cylinder(m_kamehameha,  0, 2.6, 0, 1.4, 0.06, segments=12)
     # 4 Gilded gargoyles / spouts on the fountain edge
     for fx, fz in [(-2.2, 0), (2.2, 0), (0, -2.2), (0, 2.2)]:
         b.add_box(m_gold, fx, 0.4, fz, 0.3, 0.3, 0.3)
+
+    # -------------------------------------------------------------
+    # 1B. 7 DRAGON BALLS ON STONE PEDESTALS (ORBITING PLAZA WALKWAY)
+    # -------------------------------------------------------------
+    db_radius = 6.2
+    for db_i in range(7):
+        db_angle = 2 * math.pi * db_i / 7.0
+        dx = db_radius * math.cos(db_angle)
+        dz = db_radius * math.sin(db_angle)
+        # Hexagonal stone pedestal
+        b.add_cylinder(m_darkstone, dx, 0.35, dz, 0.35, 0.7, segments=6)
+        # Gold collar ring
+        b.add_cylinder(m_gold, dx, 0.72, dz, 0.38, 0.08, segments=6)
+        # Glowing Amber Dragon Ball sphere
+        b.add_cylinder(m_dragonball, dx, 0.95, dz, 0.28, 0.34, segments=8)
+        # Red Dragon Star glyph on the face
+        b.add_box(m_star_red, dx, 0.95, dz + 0.12, 0.08, 0.08, 0.03)
 
     # -------------------------------------------------------------
     # 2. THE 4 DISTINCT GUILD BUILDINGS AT PLAZA CORNERS
@@ -426,20 +456,20 @@ def generate():
     b.add_box(m_gold,      cx + 0.7, 0.45, cz + 2.4, 0.52, 0.06, 0.52) # gold binding string
 
     # -------------------------------------------------------------
-    # 3. LIVING TOWN NPCS / AVATARS (6 Adventurers on Walkways)
+    # 3. LIVING TOWN NPCS / AVATARS (DBZ x RuneScape Stylized)
     # -------------------------------------------------------------
-    # 1. Wizard near Scribe Tower
-    b.add_character(4.5, 0.0, -4.5, m_tunic_blu, m_cape_gold, m_skin, rot_y=math.pi * 0.75)
-    # 2. Warrior near Bounty Board
-    b.add_character(-4.5, 0.0, -4.5, m_tunic_red, m_cape_dark, m_skin, rot_y=math.pi * 0.25)
-    # 3. Mystic near Skill Altar
-    b.add_character(-4.5, 0.0, 4.5, m_tunic_pur, m_cyan_rune, m_skin, rot_y=-math.pi * 0.25)
-    # 4. Courier Scout near Courier Guild
+    # 1. Saiyan Scholar near Scribe Tower (Turtle Gi + Super Saiyan Cape)
+    b.add_character(4.5, 0.0, -4.5, m_turtle_gi, m_saiyan_aura, m_skin, rot_y=math.pi * 0.75)
+    # 2. Saiyan Warrior near Bounty Board (Royal Blue Battle Armor + Gold Trim)
+    b.add_character(-4.5, 0.0, -4.5, m_tunic_blu, m_gold, m_skin, rot_y=math.pi * 0.25)
+    # 3. Namekian Mystic near Skill Altar (Purple Gi + Namek Green Aura)
+    b.add_character(-4.5, 0.0, 4.5, m_tunic_pur, m_namek_green, m_skin, rot_y=-math.pi * 0.25)
+    # 4. Capsule Corp Courier Scout near Courier Guild (Emerald Tunic + Cape Red)
     b.add_character(4.5, 0.0, 4.5, m_tunic_grn, m_cape_red, m_skin, rot_y=-math.pi * 0.75)
-    # 5. Adventurer inspecting central fountain
-    b.add_character(0.0, 0.0, -4.2, m_tunic_blu, m_cape_red, m_skin, rot_y=0.0)
-    # 6. Trader walking southern path
-    b.add_character(0.0, 0.0, 4.2, m_tunic_grn, m_cape_dark, m_skin, rot_y=math.pi)
+    # 5. Super Saiyan Adventurer meditating at central fountain
+    b.add_character(0.0, 0.0, -4.2, m_turtle_gi, m_saiyan_hair, m_skin, rot_y=0.0)
+    # 6. Wandering Z-Fighter on southern walkway
+    b.add_character(0.0, 0.0, 4.2, m_tunic_blu, m_kamehameha, m_skin, rot_y=math.pi)
 
     # -------------------------------------------------------------
     # 4. DECORATIVE OSRS TREES & ENVIRONMENT PROPS

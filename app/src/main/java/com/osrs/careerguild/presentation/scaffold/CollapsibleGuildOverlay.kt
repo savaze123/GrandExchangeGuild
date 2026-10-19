@@ -297,6 +297,40 @@ private fun GuildDrawerHeader(
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = "⚔ GUILD MODULES",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = OsrsGold,
+                )
+                InfoTooltipTrigger(
+                    title = "Guild Modules",
+                    explanation = "Select any of the 4 Guild Modules to forge ATS resumes, track live tech bounties, inspect your skill matrix, or dispatch applications with automated ledger telemetry.",
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = OsrsStone,
+                border = BorderStroke(1.dp, OsrsGold),
+                modifier = Modifier.clickable { onCollapse() },
+            ) {
+                Text(
+                    text = "▼ Collapse to 3D Hub",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = OsrsGold,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+
         // Tab Row: 4 Guild Tabs
         Row(
             modifier = Modifier.fillMaxWidth(),
