@@ -6,7 +6,7 @@ import android.security.keystore.KeyProperties
 import androidx.room.Room
 import com.osrs.careerguild.BuildConfig
 import com.osrs.careerguild.data.local.CareerGuildDatabase
-import net.zetetic.database.sqlcipher.SupportFactory
+import net.sqlcipher.database.SupportFactory
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator

@@ -50,30 +50,28 @@
 - **Issue:** `com.google.android.gms:play-services-mlkit-text-recognition:16.0.1` failed to resolve on Google Maven.
 - **Resolution:** Updated `gradle/libs.versions.toml` to `mlkitTextRecognition = "19.0.1"`. Dependency now resolves successfully.
 
-### ✅ RESOLVED: Gradle Toolchain Compatibility
+### ✅ RESOLVED: Gradle Toolchain & Java Compatibility
 - **Issue:** Kotlin 2.1.0 IntelliJ version parser threw `IllegalArgumentException: 25.0.4.1` on OpenJDK 25.
-- **Resolution:** Bootstrapped Gradle 9.8.1 wrapper supporting Java 25.
+- **Resolution:** Java 21 configured via `org.gradle.java.home` in `gradle.properties`.
 
-### ⛔ CURRENT BLOCKER: AAPT2 Execution on Asahi Linux (aarch64 16K Page Size)
-- **Environment:** Asahi Linux (Fedora 44 aarch64, 16K kernel page size)
-- **Task:** `:app:processDebugResources` (required for Kotlin compilation R-class generation)
-- **Exact Error:**
-```
-AAPT2 aapt2-8.8.0-12006047-linux Daemon #0: Unexpected error output: [binfmt_dispatcher] Using FEX with muvm
-Execution failed for task ':app:processDebugResources'.
-> AAPT2 aapt2-8.8.0-12006047-linux Daemon #0: Daemon startup failed
-```
-- **Root Cause:**
-  Google only ships x86_64 Linux binaries for `aapt2`. Because the Asahi Linux host uses a 16K page size kernel, x86_64 binaries (using jemalloc 4K pages) cannot execute natively in FEX userspace and must run via `muvm` (microVM).
-  During AAPT2 daemon startup, `binfmt_dispatcher` / `muvm` emits status messages to stderr/stdout (`[binfmt_dispatcher] Using FEX with muvm`, `Failed to set the new pressure in the guest...`). Any stderr output during daemon startup causes Android Gradle Plugin to abort with `Unexpected error output: Daemon startup failed`.
+### ✅ RESOLVED: AAPT2 Native Execution on Asahi Linux aarch64
+- **Issue:** x86_64 AAPT2 binary failed under Asahi 16k page kernel.
+- **Resolution:** Native ARM64 AAPT2 configured via `android.aapt2FromMavenOverride`.
+
+### ✅ RESOLVED: Material 3 XML Theme Dependency
+- **Issue:** `AAPT: error: resource style/Theme.Material3.DayNight.NoActionBar not found`.
+- **Resolution:** Added `com.google.android.material:material:1.12.0` (`google-material`) to `gradle/libs.versions.toml` and `app/build.gradle.kts`.
+
+### ✅ RESOLVED: Compilation & Resource Linking Fixes
+- **Issue:** Missing mipmap launcher icons, `SupportFactory` package reference in `DatabaseModule.kt`, nullability in `BountyBoardScreen.kt`, and default ViewModel wiring in `DashboardPane.kt` / `MainActivity.kt`.
+- **Resolution:** Corrected all references. `./gradlew compileDebugKotlin -q` builds cleanly with 0 errors.
 
 ---
 
 ## 4. Next Session — Resumption Checklist
 
-1. Configure silent AAPT2 execution under `muvm` or provide an aarch64 native `aapt2` binary.
-2. Re-run `./gradlew compileDebugKotlin -q`.
-3. Next modules to implement per `project_graph.json`:
+1. `./gradlew compileDebugKotlin -q` is fully verified and passing.
+2. Next modules to implement per `project_graph.json`:
    - `SCREENSHOT_OCR_HUNTER` — ML Kit OCR + screenshot picker
    - `RESUME_FORGE_PDF` — Native `PdfDocument` resume/cover-letter generator
    - `AUTO_APPLY_AGENT` — Headless WebView ATS form autofill

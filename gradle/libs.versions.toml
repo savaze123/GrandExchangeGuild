@@ -17,6 +17,7 @@ mlkitTextRecognition = "19.0.1"
 ksp = "2.1.0-1.0.29"
 generativeai = "0.9.0"
 securityCrypto = "1.0.0"
+material = "1.12.0"
 
 [libraries]
 # AndroidX & Compose
@@ -30,6 +31,7 @@ androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graph
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-compose-material-icons = { group = "androidx.compose.material", name = "material-icons-extended" }
+google-material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 
 # Foldable Adaptive Layout (Pixel 10 Pro Fold)
 androidx-compose-material3-adaptive = { group = "androidx.compose.material3.adaptive", name = "adaptive" }

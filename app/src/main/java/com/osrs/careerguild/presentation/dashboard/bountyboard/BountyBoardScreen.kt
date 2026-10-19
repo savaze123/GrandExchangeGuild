@@ -152,7 +152,7 @@ fun BountyBoardScreen(
                 val label = when {
                     uiState.isScraping -> "⚔ Scouting job boards…"
                     uiState.scoringProgress != null -> {
-                        val p = uiState.scoringProgress
+                        val p = uiState.scoringProgress!!
                         "🔮 Scoring ${p.current}/${p.total}: ${p.currentJobTitle.take(30)}…"
                     }
                     else -> "Processing…"

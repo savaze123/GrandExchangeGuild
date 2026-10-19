@@ -10,9 +10,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.osrs.careerguild.di.LocalAppContainer
 import com.osrs.careerguild.domain.model.GuildBuilding
 import com.osrs.careerguild.presentation.dashboard.bountyboard.BountyBoardScreen
 import com.osrs.careerguild.presentation.dashboard.bountyboard.BountyBoardViewModel
+import com.osrs.careerguild.presentation.dashboard.skillaltar.SkillAltarScreen
+import com.osrs.careerguild.presentation.dashboard.skillaltar.SkillAltarViewModel
 
 /**
  * Right pane of [GuildScaffold].
@@ -32,9 +38,18 @@ import com.osrs.careerguild.presentation.dashboard.bountyboard.BountyBoardViewMo
  */
 @Composable
 fun DashboardPane(
-    selectedBuilding  : GuildBuilding?,
-    bountyBoardViewModel: BountyBoardViewModel,
-    modifier          : Modifier = Modifier,
+    selectedBuilding    : GuildBuilding?,
+    modifier            : Modifier = Modifier,
+    bountyBoardViewModel: BountyBoardViewModel = run {
+        val container = LocalAppContainer.current
+        viewModel(
+            factory = object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    container.createBountyBoardViewModel() as T
+            }
+        )
+    },
 ) {
     Box(
         modifier         = modifier.fillMaxSize(),
@@ -43,7 +58,17 @@ fun DashboardPane(
         when (selectedBuilding) {
             GuildBuilding.BOUNTY_BOARD  -> BountyBoardScreen(viewModel = bountyBoardViewModel)
             GuildBuilding.SCRIBE_TOWER  -> ScribeTowerScreen()
-            GuildBuilding.SKILL_ALTAR   -> SkillAltarScreen()
+            GuildBuilding.SKILL_ALTAR   -> {
+                val container = LocalAppContainer.current
+                val skillAltarViewModel: SkillAltarViewModel = viewModel(
+                    factory = object : ViewModelProvider.Factory {
+                        @Suppress("UNCHECKED_CAST")
+                        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                            container.createSkillAltarViewModel() as T
+                    }
+                )
+                SkillAltarScreen(viewModel = skillAltarViewModel)
+            }
             GuildBuilding.COURIER_GUILD -> CourierGuildScreen()
             null                        -> DashboardOverview()
         }
@@ -57,11 +82,6 @@ fun DashboardPane(
 @Composable private fun ScribeTowerScreen() = DashboardStub(
     title    = "📜 Scribe Tower",
     subtitle = "Resume & Cover Letter Forge — RESUME_FORGE_PDF",
-)
-
-@Composable private fun SkillAltarScreen() = DashboardStub(
-    title    = "⚗ Skill Altar",
-    subtitle = "OSRS Skill Matrix — DYNAMIC_SKILL_MATRIX",
 )
 
 @Composable private fun CourierGuildScreen() = DashboardStub(
