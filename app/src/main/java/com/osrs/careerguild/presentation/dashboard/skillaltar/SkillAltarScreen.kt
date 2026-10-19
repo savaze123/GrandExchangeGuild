@@ -25,16 +25,18 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -50,25 +52,39 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 
+// ---------------------------------------------------------------------------
+// OSRS palette constants
+// ---------------------------------------------------------------------------
+private val OsrsStone      = Color(0xFF3D2B1F)  // dark stone background
+private val OsrsBrown      = Color(0xFF5C3A1E)  // panel / tile background
+private val OsrsGold       = Color(0xFFFFD700)  // gold text / active border
+private val OsrsDarkBorder = Color(0xFF1A0F08)  // inset border — inactive tile
+private val OsrsTextDim    = Color(0xFF9E8A6A)  // dimmed text for inactive tiles
+
 /**
- * Skill Altar screen — full UI for the DYNAMIC_SKILL_MATRIX node.
+ * Skill Altar screen — DYNAMIC_SKILL_MATRIX UI.
  *
  * Layout:
  * ┌─────────────────────────────────────────────┐
  * │  TopAppBar: "⚗ Skill Altar"  Stats badge    │
  * │  [Expandable] Add-Skill panel               │
  * │  Category filter chips (All / AI / Backend…)│
- * │  LazyVerticalGrid of SkillCards (2 columns) │
+ * │  LazyVerticalGrid — fixed 3 columns         │
+ * │    Tile tap = multi-select toggle           │
+ * │    Active  = bright + gold border #FFD700   │
+ * │    Inactive = dimmed/gray + dark border     │
+ * │    Level badge shows "current/max" (e.g. 72/99) │
  * │  SnackbarHost for confirmations             │
  * └─────────────────────────────────────────────┘
  *
- * Active skills shown with glowing OSRS tier border; inactive are dimmed.
- * The grid is adaptive (min 160 dp) so it reshapes across fold postures.
+ * Active skills are exposed to [BountyBoardViewModel] via [SkillRepository]
+ * reactive Flow — no direct VM-to-VM coupling needed.
  *
  * Node: DYNAMIC_SKILL_MATRIX
  */
@@ -95,111 +111,121 @@ fun SkillAltarScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color    = OsrsStone,
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
 
-        // --- Top bar ---
-        TopAppBar(
-            title = {
-                Column {
-                    Text(
-                        text  = "⚗ Skill Altar",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    )
-                    if (!uiState.isLoading) {
+            // --- Top bar ---
+            TopAppBar(
+                title = {
+                    Column {
                         Text(
-                            text  = "${uiState.activeCount} active · ${uiState.totalCount} total",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
+                            text  = "⚗ Skill Altar",
+                            style = androidx.compose.material3.MaterialTheme.typography.titleMedium
+                                .copy(fontWeight = FontWeight.Bold),
+                            color = OsrsGold,
                         )
+                        if (!uiState.isLoading) {
+                            Text(
+                                text  = "${uiState.activeCount} active · ${uiState.totalCount} total",
+                                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                                color = OsrsGold.copy(alpha = 0.7f),
+                            )
+                        }
                     }
-                }
-            },
-            actions = {
-                IconButton(onClick = viewModel::toggleAddSkillPanel) {
-                    Icon(
-                        imageVector        = if (uiState.isAddSkillExpanded)
-                                                Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = "Toggle add skill panel",
-                        tint               = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-            ),
-        )
-
-        // --- Add Skill expandable panel ---
-        AnimatedVisibility(
-            visible = uiState.isAddSkillExpanded,
-            enter   = expandVertically(),
-            exit    = shrinkVertically(),
-        ) {
-            AddSkillPanel(
-                name              = uiState.addSkillName,
-                category          = uiState.addSkillCategory,
-                availableCategories = listOf("AI & Agents", "Backend & Data", "Automation & Web", "Custom"),
-                onNameChange      = viewModel::updateAddSkillName,
-                onCategoryChange  = viewModel::updateAddSkillCategory,
-                onAdd             = {
-                    keyboard?.hide()
-                    viewModel.addSkill()
                 },
-                modifier          = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            )
-        }
-
-        // --- Category filter chips ---
-        if (uiState.categories.isNotEmpty()) {
-            CategoryFilterRow(
-                categories       = uiState.categories,
-                selectedCategory = uiState.selectedCategory,
-                onSelect         = viewModel::selectCategory,
-                modifier         = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-            )
-        }
-
-        // --- Skill grid ---
-        if (uiState.isLoading) {
-            CircularProgressIndicator(
-                modifier = Modifier.align(Alignment.CenterHorizontally).padding(32.dp),
-                color    = MaterialTheme.colorScheme.primary,
-            )
-        } else {
-            val displayedSkills = uiState.filteredSkills
-
-            LazyVerticalGrid(
-                columns             = GridCells.Adaptive(minSize = 160.dp),
-                contentPadding      = PaddingValues(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement   = Arrangement.spacedBy(8.dp),
-                modifier            = Modifier.weight(1f),
-            ) {
-                if (displayedSkills.isEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        Text(
-                            text     = "No skills in this category.\nTap ∨ above to add one.",
-                            style    = MaterialTheme.typography.bodyMedium,
-                            color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                            modifier = Modifier.padding(32.dp),
+                actions = {
+                    IconButton(onClick = viewModel::toggleAddSkillPanel) {
+                        Icon(
+                            imageVector        = if (uiState.isAddSkillExpanded)
+                                                    Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = "Toggle add skill panel",
+                            tint               = OsrsGold,
                         )
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = OsrsBrown,
+                ),
+            )
 
-                items(
-                    items = displayedSkills,
-                    key   = { it.name },
-                ) { skill ->
-                    SkillCard(
-                        skill    = skill,
-                        onToggle = viewModel::toggleSkill,
-                        onRemove = viewModel::removeSkill,
-                    )
+            // --- Add Skill expandable panel ---
+            AnimatedVisibility(
+                visible = uiState.isAddSkillExpanded,
+                enter   = expandVertically(),
+                exit    = shrinkVertically(),
+            ) {
+                AddSkillPanel(
+                    name                = uiState.addSkillName,
+                    category            = uiState.addSkillCategory,
+                    availableCategories = listOf("AI & Agents", "Backend & Data", "Automation & Web", "Custom"),
+                    onNameChange        = viewModel::updateAddSkillName,
+                    onCategoryChange    = viewModel::updateAddSkillCategory,
+                    onAdd               = {
+                        keyboard?.hide()
+                        viewModel.addSkill()
+                    },
+                    modifier            = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+
+            // --- Category filter chips ---
+            if (uiState.categories.isNotEmpty()) {
+                CategoryFilterRow(
+                    categories       = uiState.categories,
+                    selectedCategory = uiState.selectedCategory,
+                    onSelect         = viewModel::selectCategory,
+                    modifier         = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+
+            // --- Skill grid — fixed 3 columns per spec ---
+            if (uiState.isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(32.dp),
+                    color    = OsrsGold,
+                )
+            } else {
+                val displayedSkills = uiState.filteredSkills
+
+                LazyVerticalGrid(
+                    columns               = GridCells.Fixed(3),
+                    contentPadding        = PaddingValues(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement   = Arrangement.spacedBy(6.dp),
+                    modifier              = Modifier.weight(1f),
+                ) {
+                    if (displayedSkills.isEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Text(
+                                text     = "No skills in this category.\nTap ∨ above to add one.",
+                                style    = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                                color    = OsrsTextDim,
+                                modifier = Modifier.padding(32.dp),
+                            )
+                        }
+                    }
+
+                    items(
+                        items = displayedSkills,
+                        key   = { it.name },
+                    ) { skill ->
+                        // Tap anywhere on tile to toggle (multi-select)
+                        OsrsSkillTile(
+                            skill    = skill,
+                            onToggle = viewModel::toggleSkill,
+                            onRemove = viewModel::removeSkill,
+                        )
+                    }
                 }
             }
-        }
 
-        SnackbarHost(hostState = snackbarHostState)
+            SnackbarHost(hostState = snackbarHostState)
+        }
     }
 }
 
@@ -219,25 +245,37 @@ private fun AddSkillPanel(
     modifier            : Modifier = Modifier,
 ) {
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier       = modifier.fillMaxWidth(),
+        color          = OsrsBrown,
         tonalElevation = 2.dp,
-        shape = MaterialTheme.shapes.medium,
+        shape          = androidx.compose.material3.MaterialTheme.shapes.medium,
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            modifier            = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Text(
                 text  = "+ Add Skill to Altar",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.primary,
+                style = androidx.compose.material3.MaterialTheme.typography.labelMedium
+                    .copy(fontWeight = FontWeight.SemiBold),
+                color = OsrsGold,
             )
 
             OutlinedTextField(
                 value         = name,
                 onValueChange = onNameChange,
-                label         = { Text("Skill name") },
-                placeholder   = { Text("e.g. LangGraph, PyTorch, Ktor…") },
+                label         = { Text("Skill name", color = OsrsTextDim) },
+                placeholder   = { Text("e.g. LangGraph, PyTorch, Ktor…", color = OsrsTextDim) },
                 singleLine    = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { onAdd() }),
+                colors          = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor   = OsrsGold,
+                    unfocusedBorderColor = OsrsDarkBorder,
+                    focusedTextColor     = OsrsGold,
+                    unfocusedTextColor   = OsrsTextDim,
+                    cursorColor          = OsrsGold,
+                ),
                 modifier      = Modifier.fillMaxWidth(),
             )
 
@@ -251,8 +289,14 @@ private fun AddSkillPanel(
                     value             = category,
                     onValueChange     = {},
                     readOnly          = true,
-                    label             = { Text("Category") },
+                    label             = { Text("Category", color = OsrsTextDim) },
                     trailingIcon      = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                    colors            = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor   = OsrsGold,
+                        unfocusedBorderColor = OsrsDarkBorder,
+                        focusedTextColor     = OsrsGold,
+                        unfocusedTextColor   = OsrsTextDim,
+                    ),
                     modifier          = Modifier.menuAnchor().fillMaxWidth(),
                 )
                 ExposedDropdownMenu(
@@ -261,7 +305,7 @@ private fun AddSkillPanel(
                 ) {
                     availableCategories.forEach { cat ->
                         DropdownMenuItem(
-                            text    = { Text(cat) },
+                            text    = { Text(cat, color = OsrsGold) },
                             onClick = {
                                 onCategoryChange(cat)
                                 expanded = false
@@ -274,6 +318,10 @@ private fun AddSkillPanel(
             Button(
                 onClick  = onAdd,
                 enabled  = name.isNotBlank(),
+                colors   = ButtonDefaults.buttonColors(
+                    containerColor = OsrsBrown,
+                    contentColor   = OsrsGold,
+                ),
                 modifier = Modifier.align(Alignment.End),
             ) {
                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -297,23 +345,48 @@ private fun CategoryFilterRow(
     modifier         : Modifier = Modifier,
 ) {
     androidx.compose.foundation.lazy.LazyRow(
-        modifier            = modifier,
+        modifier              = modifier,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
-        contentPadding      = PaddingValues(horizontal = 4.dp),
+        contentPadding        = PaddingValues(horizontal = 4.dp),
     ) {
         item {
             FilterChip(
                 selected = selectedCategory == null,
                 onClick  = { onSelect(null) },
-                label    = { Text("All") },
+                label    = { Text("All", color = if (selectedCategory == null) OsrsGold else OsrsTextDim) },
+                colors   = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = OsrsBrown,
+                    containerColor         = OsrsStone,
+                    selectedLabelColor     = OsrsGold,
+                    labelColor             = OsrsTextDim,
+                ),
+                border   = FilterChipDefaults.filterChipBorder(
+                    enabled              = true,
+                    selected             = selectedCategory == null,
+                    selectedBorderColor  = OsrsGold,
+                    borderColor          = OsrsDarkBorder,
+                ),
             )
         }
         items(categories.size) { i ->
             val cat = categories[i]
+            val isSelected = selectedCategory == cat
             FilterChip(
-                selected = selectedCategory == cat,
-                onClick  = { onSelect(if (selectedCategory == cat) null else cat) },
-                label    = { Text(cat) },
+                selected = isSelected,
+                onClick  = { onSelect(if (isSelected) null else cat) },
+                label    = { Text(cat, color = if (isSelected) OsrsGold else OsrsTextDim) },
+                colors   = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = OsrsBrown,
+                    containerColor         = OsrsStone,
+                    selectedLabelColor     = OsrsGold,
+                    labelColor             = OsrsTextDim,
+                ),
+                border   = FilterChipDefaults.filterChipBorder(
+                    enabled              = true,
+                    selected             = isSelected,
+                    selectedBorderColor  = OsrsGold,
+                    borderColor          = OsrsDarkBorder,
+                ),
             )
         }
     }

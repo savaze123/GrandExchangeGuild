@@ -5,6 +5,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.osrs.careerguild.BuildConfig
 import com.osrs.careerguild.core.cli.CliDispatcher
 import com.osrs.careerguild.core.cli.CliParser
+import com.osrs.careerguild.core.token.TokenGovernor
 import com.osrs.careerguild.data.remote.scraper.TechRadarScraperImpl
 import com.osrs.careerguild.data.repository.JobRepositoryImpl
 import com.osrs.careerguild.data.repository.SkillRepositoryImpl
@@ -45,6 +46,12 @@ class AppContainer(context: Context) {
     private val db          = DatabaseModule.createDatabase(appContext)
     private val httpClient  = NetworkModule.createHttpClient()
     private val dataStore   = appContext.dataStore
+
+    // ---------------------------------------------------------------------------
+    // TokenGovernor — SharedPreferences budget guard for TRAJECTORY_SCORER
+    // ---------------------------------------------------------------------------
+
+    val tokenGovernor = TokenGovernor(appContext)
 
     // ---------------------------------------------------------------------------
     // DAOs
@@ -115,9 +122,11 @@ class AppContainer(context: Context) {
 
     fun createBountyBoardViewModel() = BountyBoardViewModel(
         jobRepository     = jobRepository,
+        skillRepository   = skillRepository,
         fetchAndScoreJobs = fetchAndScoreJobsUseCase,
         blockCompany      = blockCompanyUseCase,
         markApplied       = markAppliedUseCase,
+        tokenGovernor     = tokenGovernor,
     )
 
     fun createSkillAltarViewModel() = SkillAltarViewModel(
