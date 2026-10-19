@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- CareerGuildTheme is applied entirely via Jetpack Compose.
+         This XML theme is a minimal Material3 bridge to satisfy the
+         android:theme reference in AndroidManifest.xml. -->
+    <style name="Theme.CareerGuild" parent="Theme.Material3.DayNight.NoActionBar" />
+</resources>

@@ -1,0 +1,23 @@
+# Git ignore rules for OSRS Grand Exchange Career Guild
+
+# Secrets — never commit the API key
+local.properties
+
+# Gradle build outputs
+.gradle/
+build/
+app/build/
+
+# Android Studio / IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+captures/
+
+# Room schema export directory (commit these — they document migrations)
+# app/schemas/  ← intentionally NOT ignored
+
+# OS artefacts
+.DS_Store
+Thumbs.db

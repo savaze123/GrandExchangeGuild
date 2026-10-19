@@ -1,0 +1,160 @@
+{
+  "meta": {
+    "format": "graphify-context-v1.2",
+    "project": "OSRS_Grand_Exchange_Career_Guild",
+    "layout_architecture": "Option 1: Split-Screen (Left: Filament 3D OSRS Town Hub | Right: Material3 Adaptive Dashboard)",
+    "target_device": "Google Pixel 10 Pro Fold (Tensor G5, 16GB RAM, Dual-Screen)",
+    "host_dev_os": "Asahi Linux (Fedora 44 aarch64) + Gemini CLI / Antigravity CLI + VS Code",
+    "user_profile_constraints": {
+      "education": "BA in Computer Science",
+      "preloaded_skills": {
+        "ai_and_agents": [
+          "Gemini API",
+          "AI Agents",
+          "LLM Integration",
+          "Prompt Engineering",
+          "RAG"
+        ],
+        "backend_and_data": [
+          "Python",
+          "SQL",
+          "REST APIs",
+          "Airflow",
+          "Kafka",
+          "Hadoop",
+          "Spark",
+          "NoSQL",
+          "ETL"
+        ],
+        "automation_and_web": [
+          "Playwright",
+          "Selenium",
+          "Asyncio",
+          "Shopify Dawn/API Integration",
+          "Git"
+        ]
+      },
+      "target_tracks": [
+        "AI Engineer / LLM Application Developer",
+        "Software Engineer (Backend, Frontend, Full-Stack)",
+        "Data Engineer / Technical Data Analyst",
+        "SWE & AI Internships / New Grad Programs"
+      ],
+      "career_heuristic": "Maximize 5-year salary and skill compounding; block predatory staffing agencies and non-coding support roles."
+    }
+  },
+  "nodes": [
+    {
+      "id": "UI_SPLIT_SCAFFOLD",
+      "type": "Presentation",
+      "tech": "Jetpack Compose ListDetailPaneScaffold + ViewModel",
+      "role": "Left pane hosts 120Hz Filament 3D OSRS Career Guild; Right pane hosts Job Dashboard, OSRS Skill Tree, Resume Diff Viewer, and Agent Logs."
+    },
+    {
+      "id": "UI_3D_GUILD_HUB",
+      "type": "Presentation_3D",
+      "tech": "Google Filament 3D Engine (glTF/GLB)",
+      "role": "Interactive low-poly buildings: Bounty Board (Jobs), Scribe Tower (Resume/Cover Letter PDF), Skill Altar (Dynamic Skill Matrix), Courier Guild (Auto-Apply Queue)."
+    },
+    {
+      "id": "DYNAMIC_SKILL_MATRIX",
+      "type": "State_And_Matching",
+      "tech": "Room Entity + Kotlin StateFlow",
+      "role": "OSRS-style Skill Tab where user can add, remove, or toggle custom skills (e.g., AI tools, frontend frameworks) via UI or CLI. Dynamically updates scraper search queries and resume keyword injection."
+    },
+    {
+      "id": "SAFE_CLI_ENGINE",
+      "type": "Security_Control",
+      "tech": "Kotlin Sealed Interface AST Parser + Jetpack DataStore",
+      "role": "Sandboxed in-app command bar for instant UI/theme updates (/theme varrock_dark) and skill injection (/skill add LangGraph). Zero eval() or shell execution."
+    },
+    {
+      "id": "SCREENSHOT_OCR_HUNTER",
+      "type": "AI_Perception",
+      "tech": "Google ML Kit Text Recognition v2 (Offline) + Custom Search JSON API",
+      "role": "Extracts job title and company from user screenshots offline, finds live ATS application URL, and spawns a Quest Scroll in the 3D hub."
+    },
+    {
+      "id": "TECH_RADAR_SCRAPER",
+      "type": "Data_Ingestion",
+      "tech": "Kotlin Coroutines + Ktor + ZIP Radius Geo-Filter",
+      "role": "Queries SimplifyJobs/PittCSC GitHub feeds, YCombinator, Wellfound, BuiltIn, and Greenhouse/Lever/Ashby using active skills from DYNAMIC_SKILL_MATRIX."
+    },
+    {
+      "id": "TRAJECTORY_SCORER",
+      "type": "AI_Evaluation",
+      "tech": "Gemini Nano (AICore Offline) / Gemini API",
+      "role": "Scores jobs 1-100 on 5-year CS career growth potential and skill match against DYNAMIC_SKILL_MATRIX. Filters out staffing scams."
+    },
+    {
+      "id": "RESUME_FORGE_PDF",
+      "type": "Document_Engine",
+      "tech": "Android Native PdfDocument API (UTF-8 Type-1 Fonts)",
+      "role": "Tailors resume & cover letter using active skills from DYNAMIC_SKILL_MATRIX + job description. Outputs stripped, single-column ATS-verified PDFs (<100KB)."
+    },
+    {
+      "id": "AUTO_APPLY_AGENT",
+      "type": "Automation_Agent",
+      "tech": "Android Headless WebView + DOM Field Mapper",
+      "role": "Auto-fills Greenhouse, Lever, and Ashby forms with user profile + tailored ATS PDF."
+    },
+    {
+      "id": "LOCAL_VAULT",
+      "type": "Storage",
+      "tech": "Room SQLite (FTS5) + SQLCipher",
+      "role": "Encrypted local storage for master CS resume JSON, custom user skills, applied job ledger, and company blocklists."
+    }
+  ],
+  "edges": [
+    {
+      "from": "DYNAMIC_SKILL_MATRIX",
+      "to": "TECH_RADAR_SCRAPER",
+      "action": "injects_active_ai_and_custom_skills_into_search_queries"
+    },
+    {
+      "from": "DYNAMIC_SKILL_MATRIX",
+      "to": "RESUME_FORGE_PDF",
+      "action": "supplies_verified_user_skills_for_ats_tailoring"
+    },
+    {
+      "from": "SAFE_CLI_ENGINE",
+      "to": "DYNAMIC_SKILL_MATRIX",
+      "action": "adds_or_toggles_skills_via_safe_commands"
+    },
+    {
+      "from": "TECH_RADAR_SCRAPER",
+      "to": "TRAJECTORY_SCORER",
+      "action": "pipes_raw_listings_for_5yr_growth_grading"
+    },
+    {
+      "from": "SCREENSHOT_OCR_HUNTER",
+      "to": "TRAJECTORY_SCORER",
+      "action": "resolves_screenshot_to_live_ats_url"
+    },
+    {
+      "from": "TRAJECTORY_SCORER",
+      "to": "LOCAL_VAULT",
+      "action": "saves_verified_high_growth_jobs"
+    },
+    {
+      "from": "LOCAL_VAULT",
+      "to": "UI_3D_GUILD_HUB",
+      "action": "renders_tiered_quest_scrolls_in_3d"
+    },
+    {
+      "from": "UI_3D_GUILD_HUB",
+      "to": "UI_SPLIT_SCAFFOLD",
+      "action": "opens_job_detail_and_resume_forge_on_right_pane"
+    },
+    {
+      "from": "RESUME_FORGE_PDF",
+      "to": "AUTO_APPLY_AGENT",
+      "action": "injects_tailored_pdf_into_ats_form"
+    },
+    {
+      "from": "SAFE_CLI_ENGINE",
+      "to": "UI_SPLIT_SCAFFOLD",
+      "action": "mutates_ui_tokens_without_code_execution"
+    }
+  ]
+}
