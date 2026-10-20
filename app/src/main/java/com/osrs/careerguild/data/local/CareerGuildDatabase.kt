@@ -39,4 +39,14 @@ abstract class CareerGuildDatabase : RoomDatabase() {
     abstract fun skillDao(): SkillDao
     abstract fun jobDao(): JobDao
     abstract fun blockedCompanyDao(): BlockedCompanyDao
+
+    companion object {
+        init {
+            try {
+                System.loadLibrary("sqlcipher")
+            } catch (t: Throwable) {
+                android.util.Log.w("CareerGuildDB", "SQLCipher loadLibrary warning: ${t.message}")
+            }
+        }
+    }
 }

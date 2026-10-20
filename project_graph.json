@@ -48,19 +48,47 @@
       "id": "UI_SPLIT_SCAFFOLD",
       "type": "Presentation",
       "tech": "Jetpack Compose ListDetailPaneScaffold + ViewModel",
-      "role": "Left pane hosts 120Hz Filament 3D OSRS Career Guild; Right pane hosts Job Dashboard, OSRS Skill Tree, Resume Diff Viewer, and Agent Logs."
+      "role": "Left pane hosts 120Hz Filament 3D OSRS Career Guild; Right pane hosts Job Dashboard, OSRS Skill Tree, Resume Diff Viewer, and Agent Logs.",
+      "status": "COMPLETED",
+      "completed_in": "feature/di-skill-altar",
+      "completed_files": [
+        "GuildScaffold.kt",
+        "DashboardPane.kt"
+      ]
     },
     {
       "id": "UI_3D_GUILD_HUB",
       "type": "Presentation_3D",
       "tech": "Google Filament 3D Engine (glTF/GLB)",
-      "role": "Interactive low-poly buildings: Bounty Board (Jobs), Scribe Tower (Resume/Cover Letter PDF), Skill Altar (Dynamic Skill Matrix), Courier Guild (Auto-Apply Queue)."
+      "role": "Interactive low-poly buildings: Bounty Board (Jobs), Scribe Tower (Resume/Cover Letter PDF), Skill Altar (Dynamic Skill Matrix), Courier Guild (Auto-Apply Queue).",
+      "status": "COMPLETED",
+      "completed_in": "feature/di-skill-altar",
+      "completed_files": [
+        "GuildHubPane.kt",
+        "osrs_guild.glb"
+      ]
     },
     {
       "id": "DYNAMIC_SKILL_MATRIX",
       "type": "State_And_Matching",
       "tech": "Room Entity + Kotlin StateFlow",
-      "role": "OSRS-style Skill Tab where user can add, remove, or toggle custom skills (e.g., AI tools, frontend frameworks) via UI or CLI. Dynamically updates scraper search queries and resume keyword injection."
+      "role": "OSRS-style Skill Tab where user can add, remove, or toggle custom skills (e.g., AI tools, frontend frameworks) via UI or CLI. Dynamically updates scraper search queries and resume keyword injection.",
+      "status": "COMPLETED",
+      "completed_in": "feature/di-skill-altar",
+      "completed_files": [
+        "SkillAltarScreen.kt",
+        "SkillCard.kt",
+        "SkillAltarViewModel.kt",
+        "SkillAltarUiState.kt"
+      ],
+      "ui_spec": {
+        "grid": "3-column fixed (GridCells.Fixed(3))",
+        "theme": "Stone/brown OSRS palette",
+        "active_tile": "Gold border #FFD700 + OsrsBrown background",
+        "inactive_tile": "Dark inset border #1A0F08 + OsrsStone background + 45% alpha text",
+        "level_format": "current/max (e.g. 72/99)",
+        "interaction": "Tap tile to multi-select toggle"
+      }
     },
     {
       "id": "SAFE_CLI_ENGINE",
@@ -78,7 +106,15 @@
       "id": "TECH_RADAR_SCRAPER",
       "type": "Data_Ingestion",
       "tech": "Kotlin Coroutines + Ktor + ZIP Radius Geo-Filter",
-      "role": "Queries SimplifyJobs/PittCSC GitHub feeds, YCombinator, Wellfound, BuiltIn, and Greenhouse/Lever/Ashby using active skills from DYNAMIC_SKILL_MATRIX."
+      "role": "Queries SimplifyJobs/PittCSC GitHub feeds, YCombinator, Wellfound, BuiltIn, and Greenhouse/Lever/Ashby using active skills from DYNAMIC_SKILL_MATRIX.",
+      "status": "COMPLETED",
+      "completed_in": "feature/di-skill-altar",
+      "completed_files": [
+        "TechRadarScraperImpl.kt",
+        "JobFeedSource.kt",
+        "LinkValidator.kt",
+        "NetworkModule.kt"
+      ]
     },
     {
       "id": "TRAJECTORY_SCORER",
@@ -87,16 +123,59 @@
       "role": "Scores jobs 1-100 on 5-year CS career growth potential and skill match against DYNAMIC_SKILL_MATRIX. Filters out staffing scams."
     },
     {
+      "id": "TOKEN_GOVERNOR",
+      "type": "Budget_Control",
+      "tech": "Android SharedPreferences (monthly cost accumulator)",
+      "role": "Tracks estimated Gemini API spend per calendar month. Blocks TRAJECTORY_SCORER if cost > $10/month, falling back to Ktor keyword search + Room cache. Auto-resets each new month.",
+      "status": "COMPLETED",
+      "completed_in": "feature/di-skill-altar",
+      "completed_files": [
+        "TokenGovernor.kt"
+      ],
+      "wired_into": [
+        "AppContainer.kt",
+        "BountyBoardViewModel.kt",
+        "BountyBoardUiState.kt"
+      ]
+    },
+    {
+      "id": "DI_CONTAINER",
+      "type": "Infrastructure",
+      "tech": "Manual DI — AppContainer (no Hilt/Dagger)",
+      "role": "Single source of truth for all singletons. Wires DB → DAOs → Repositories → UseCases → TokenGovernor → ViewModels. No reflection, no code generation.",
+      "status": "COMPLETED",
+      "completed_in": "feature/di-skill-altar",
+      "completed_files": [
+        "AppContainer.kt",
+        "LocalAppContainer.kt",
+        "DatabaseModule.kt",
+        "NetworkModule.kt"
+      ]
+    },
+    {
       "id": "RESUME_FORGE_PDF",
       "type": "Document_Engine",
       "tech": "Android Native PdfDocument API (UTF-8 Type-1 Fonts)",
-      "role": "Tailors resume & cover letter using active skills from DYNAMIC_SKILL_MATRIX + job description. Outputs stripped, single-column ATS-verified PDFs (<100KB)."
+      "role": "Tailors resume & cover letter using active skills from DYNAMIC_SKILL_MATRIX + job description. Outputs stripped, single-column ATS-verified PDFs (<100KB).",
+      "status": "COMPLETED",
+      "completed_in": "feature/di-skill-altar",
+      "completed_files": [
+        "ResumeForgePdfGenerator.kt",
+        "ScribeTowerScreen.kt",
+        "UserProfileManager.kt"
+      ]
     },
     {
       "id": "AUTO_APPLY_AGENT",
       "type": "Automation_Agent",
       "tech": "Android Headless WebView + DOM Field Mapper",
-      "role": "Auto-fills Greenhouse, Lever, and Ashby forms with user profile + tailored ATS PDF."
+      "role": "Auto-fills Greenhouse, Lever, and Ashby forms with user profile + tailored ATS PDF.",
+      "status": "COMPLETED",
+      "completed_in": "feature/di-skill-altar",
+      "completed_files": [
+        "CourierGuildScreen.kt",
+        "LinkValidator.kt"
+      ]
     },
     {
       "id": "LOCAL_VAULT",
@@ -127,6 +206,11 @@
       "action": "pipes_raw_listings_for_5yr_growth_grading"
     },
     {
+      "from": "TOKEN_GOVERNOR",
+      "to": "TRAJECTORY_SCORER",
+      "action": "gates_gemini_api_calls_when_monthly_budget_exceeds_10usd"
+    },
+    {
       "from": "SCREENSHOT_OCR_HUNTER",
       "to": "TRAJECTORY_SCORER",
       "action": "resolves_screenshot_to_live_ats_url"
@@ -155,6 +239,16 @@
       "from": "SAFE_CLI_ENGINE",
       "to": "UI_SPLIT_SCAFFOLD",
       "action": "mutates_ui_tokens_without_code_execution"
+    },
+    {
+      "from": "DI_CONTAINER",
+      "to": "DYNAMIC_SKILL_MATRIX",
+      "action": "wires_skill_repository_and_use_cases"
+    },
+    {
+      "from": "DI_CONTAINER",
+      "to": "TOKEN_GOVERNOR",
+      "action": "provides_token_governor_singleton_to_viewmodels"
     }
   ]
 }

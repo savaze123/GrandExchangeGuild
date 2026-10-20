@@ -4,6 +4,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.CompositionLocalProvider
+import com.osrs.careerguild.CareerGuildApp
+import com.osrs.careerguild.di.LocalAppContainer
 import com.osrs.careerguild.presentation.theme.CareerGuildTheme
 import com.osrs.careerguild.presentation.scaffold.GuildScaffold
 
@@ -20,12 +23,30 @@ import com.osrs.careerguild.presentation.scaffold.GuildScaffold
  */
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        init {
+            try {
+                System.loadLibrary("sqlcipher")
+            } catch (t: Throwable) {
+                android.util.Log.w("MainActivity", "SQLCipher loadLibrary warning: ${t.message}")
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        try {
+            System.loadLibrary("sqlcipher")
+        } catch (t: Throwable) {
+            android.util.Log.w("MainActivity", "SQLCipher loadLibrary warning: ${t.message}")
+        }
         enableEdgeToEdge()
+        val app = application as CareerGuildApp
         setContent {
-            CareerGuildTheme {
-                GuildScaffold()
+            CompositionLocalProvider(LocalAppContainer provides app.appContainer) {
+                CareerGuildTheme {
+                    GuildScaffold()
+                }
             }
         }
     }

@@ -2,7 +2,11 @@ package com.osrs.careerguild.presentation.dashboard.bountyboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.osrs.careerguild.core.token.TokenGovernor
+import com.osrs.careerguild.domain.model.JobListing
+import com.osrs.careerguild.domain.model.Skill
 import com.osrs.careerguild.domain.repository.JobRepository
+import com.osrs.careerguild.domain.repository.SkillRepository
 import com.osrs.careerguild.domain.usecase.bountyboard.BlockCompanyUseCase
 import com.osrs.careerguild.domain.usecase.bountyboard.FetchAndScoreJobsUseCase
 import com.osrs.careerguild.domain.usecase.bountyboard.MarkAppliedUseCase
@@ -11,7 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -23,6 +27,14 @@ import kotlinx.coroutines.launch
  *  - [BlockCompanyUseCase]       — LOCAL_VAULT blocklist write
  *  - [MarkAppliedUseCase]        — job applied timestamp
  *
+ * Budget gating: [TokenGovernor] gates whether Gemini scoring is invoked.
+ * If the $10/month cap is exceeded, the use case falls back to Ktor keyword
+ * search pre-filtered results persisted in Room (score = 0, no AI scoring).
+ *
+ * Skill filter: active skills from DYNAMIC_SKILL_MATRIX are surfaced via
+ * [BountyBoardUiState.activeSkills] so the Skill Altar selection drives
+ * scraper keyword injection and UI-side job filtering simultaneously.
+ *
  * Observes [JobRepository.observeAll] / [JobRepository.search] for reactive
  * job list updates (Room Flow → StateFlow).
  *
@@ -30,16 +42,62 @@ import kotlinx.coroutines.launch
  */
 class BountyBoardViewModel(
     private val jobRepository      : JobRepository,
+    private val skillRepository    : SkillRepository,
     private val fetchAndScoreJobs  : FetchAndScoreJobsUseCase,
     private val blockCompany       : BlockCompanyUseCase,
     private val markApplied        : MarkAppliedUseCase,
+    private val tokenGovernor      : TokenGovernor,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(BountyBoardUiState())
     val uiState: StateFlow<BountyBoardUiState> = _uiState.asStateFlow()
 
+    private var cachedAllJobs: List<JobListing> = emptyList()
+
     init {
         observeJobs()
+        observeActiveSkills()
+        _uiState.update { it.copy(isGeminiAllowed = tokenGovernor.isGeminiAllowed) }
+        viewModelScope.launch {
+            refresh()
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Filtering logic combining search query, active skills, and broad CS match
+    // ---------------------------------------------------------------------------
+
+    private fun filterJobs(
+        jobs: List<JobListing>,
+        query: String,
+        activeSkills: List<Skill>,
+    ): List<JobListing> {
+        val q = query.trim()
+        val activeSkillNames = activeSkills.filter { it.isActive }.map { it.name.lowercase() }
+
+        return jobs.filter { j ->
+            // Text search: matches title, company, or any matched skill tag
+            val matchesQuery = q.isBlank() ||
+                j.title.contains(q, ignoreCase = true) ||
+                j.company.contains(q, ignoreCase = true) ||
+                j.matchedSkills.any { it.contains(q, ignoreCase = true) }
+
+            // Active skill filter — show job if it matches any active skill or broad CS skills, or if no active skills
+            val matchesSkill = activeSkillNames.isEmpty() ||
+                j.matchedSkills.isEmpty() ||
+                j.matchedSkills.any { ms ->
+                    ms.contains("Software", ignoreCase = true) ||
+                    ms.contains("Engineering", ignoreCase = true) ||
+                    ms.contains("Systems", ignoreCase = true) ||
+                    ms.contains("Algorithms", ignoreCase = true) ||
+                    activeSkillNames.any { s -> ms.lowercase().contains(s) || s.contains(ms.lowercase()) }
+                } ||
+                activeSkillNames.any { s ->
+                    j.title.lowercase().contains(s) || j.company.lowercase().contains(s)
+                }
+
+            matchesQuery && matchesSkill
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -53,14 +111,31 @@ class BountyBoardViewModel(
                     _uiState.update { it.copy(error = "Failed to load jobs: ${e.message}", isLoading = false) }
                 }
                 .collectLatest { jobs ->
+                    cachedAllJobs = jobs
                     _uiState.update { state ->
-                        val query = state.searchQuery
-                        val filtered = if (query.isBlank()) jobs
-                                       else jobs.filter { j ->
-                                           j.title.contains(query, ignoreCase = true) ||
-                                           j.company.contains(query, ignoreCase = true)
-                                       }
-                        state.copy(jobs = filtered, isLoading = false)
+                        state.copy(
+                            jobs = filterJobs(cachedAllJobs, state.searchQuery, state.activeSkills),
+                            isLoading = false,
+                        )
+                    }
+                }
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Observe DYNAMIC_SKILL_MATRIX active skills for query injection
+    // ---------------------------------------------------------------------------
+
+    private fun observeActiveSkills() {
+        viewModelScope.launch {
+            skillRepository.observeActive()
+                .catch { /* non-fatal: scraper uses cached skills */ }
+                .collectLatest { skills ->
+                    _uiState.update { state ->
+                        state.copy(
+                            activeSkills = skills,
+                            jobs = filterJobs(cachedAllJobs, state.searchQuery, skills),
+                        )
                     }
                 }
         }
@@ -68,14 +143,27 @@ class BountyBoardViewModel(
 
     // ---------------------------------------------------------------------------
     // Refresh — triggers TECH_RADAR_SCRAPER → TRAJECTORY_SCORER pipeline
+    // Respects TokenGovernor: if budget exceeded, Gemini is skipped and the
+    // use-case falls through to keyword-filtered Room cache.
     // ---------------------------------------------------------------------------
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isScraping = true, isScoring = false, error = null) }
+            android.util.Log.i("BountyBoardVM", "refresh() called on BountyBoardViewModel")
+            val geminiAllowed = tokenGovernor.isGeminiAllowed
+            _uiState.update {
+                it.copy(
+                    isScraping     = true,
+                    isScoring      = false,
+                    error          = null,
+                    isGeminiAllowed = geminiAllowed,
+                )
+            }
 
+            val scoredCount = intArrayOf(0)
             fetchAndScoreJobs(
                 onProgress = { current, total, title ->
+                    scoredCount[0] = current
                     _uiState.update { state ->
                         state.copy(
                             isScraping      = false,
@@ -89,6 +177,7 @@ class BountyBoardViewModel(
                     }
                 }
             ).onFailure { e ->
+                android.util.Log.e("BountyBoardVM", "fetchAndScoreJobs failed: ${e.message}", e)
                 _uiState.update {
                     it.copy(
                         isScraping      = false,
@@ -98,11 +187,16 @@ class BountyBoardViewModel(
                     )
                 }
             }.onSuccess {
+                // Record cost if Gemini was used for this batch
+                if (geminiAllowed && scoredCount[0] > 0) {
+                    tokenGovernor.recordScoringBatch(scoredCount[0])
+                }
                 _uiState.update {
                     it.copy(
                         isScraping      = false,
                         isScoring       = false,
                         scoringProgress = null,
+                        isGeminiAllowed = tokenGovernor.isGeminiAllowed,
                     )
                 }
             }
@@ -114,20 +208,28 @@ class BountyBoardViewModel(
     // ---------------------------------------------------------------------------
 
     fun search(query: String) {
-        _uiState.update { it.copy(searchQuery = query) }
-        // Re-filter is handled reactively in observeJobs() on each collection pass.
-        // For an explicit search we trigger a re-observe by launching a search flow.
-        viewModelScope.launch {
-            val results = if (query.isBlank()) {
-                jobRepository.observeAll()
-            } else {
-                jobRepository.search(query)
-            }
-            results.catch { /* already handled in observeJobs */ }
-                .collectLatest { jobs ->
-                    _uiState.update { it.copy(jobs = jobs) }
-                }
+        _uiState.update { state ->
+            state.copy(
+                searchQuery = query,
+                jobs = filterJobs(cachedAllJobs, query, state.activeSkills),
+            )
         }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Search Parameters (Section 3)
+    // ---------------------------------------------------------------------------
+
+    fun updateZipCode(zip: String) {
+        _uiState.update { it.copy(zipCode = zip) }
+    }
+
+    fun updateSearchRadius(radius: String) {
+        _uiState.update { it.copy(searchRadius = radius) }
+    }
+
+    fun updateWorkMode(mode: String) {
+        _uiState.update { it.copy(workMode = mode) }
     }
 
     // ---------------------------------------------------------------------------

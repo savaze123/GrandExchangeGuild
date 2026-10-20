@@ -6,7 +6,7 @@ import android.security.keystore.KeyProperties
 import androidx.room.Room
 import com.osrs.careerguild.BuildConfig
 import com.osrs.careerguild.data.local.CareerGuildDatabase
-import net.zetetic.database.sqlcipher.SupportFactory
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -32,6 +32,14 @@ import javax.crypto.spec.GCMParameterSpec
  */
 object DatabaseModule {
 
+    init {
+        try {
+            System.loadLibrary("sqlcipher")
+        } catch (t: Throwable) {
+            android.util.Log.w("DatabaseModule", "SQLCipher loadLibrary warning: ${t.message}")
+        }
+    }
+
     private const val KEY_ALIAS      = "career_guild_db_v1"
     private const val PREFS_NAME     = "career_guild_vault"
     private const val PREF_CIPHER    = "db_ct"
@@ -40,8 +48,9 @@ object DatabaseModule {
     private const val GCM_TAG_BITS   = 128
 
     fun createDatabase(context: Context): CareerGuildDatabase {
+        System.loadLibrary("sqlcipher")
         val passphrase = getOrCreatePassphrase(context)
-        val factory    = SupportFactory(passphrase)
+        val factory    = SupportOpenHelperFactory(passphrase)
         passphrase.fill(0) // zero out after handing to SQLCipher
 
         return Room.databaseBuilder(

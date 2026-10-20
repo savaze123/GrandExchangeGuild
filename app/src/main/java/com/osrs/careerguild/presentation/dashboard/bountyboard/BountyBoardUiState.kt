@@ -1,6 +1,7 @@
 package com.osrs.careerguild.presentation.dashboard.bountyboard
 
 import com.osrs.careerguild.domain.model.JobListing
+import com.osrs.careerguild.domain.model.Skill
 
 /**
  * MVI UiState for the Bounty Board screen (TECH_RADAR_SCRAPER + TRAJECTORY_SCORER).
@@ -30,8 +31,28 @@ data class BountyBoardUiState(
     /** Current search text applied to the jobs list. */
     val searchQuery    : String             = "",
 
+    /**
+     * Search Parameters — Section 3:
+     * Dynamic zip code with configurable search radius.
+     */
+    val zipCode        : String             = "",
+    val searchRadius   : String             = "25 mi",
+    val workMode       : String             = "All",
+
     /** Snackbar-style confirmation after blocking a company. */
     val blockedCompany : String?            = null,
+
+    /**
+     * Active skills from DYNAMIC_SKILL_MATRIX — used for job list filtering
+     * and injected into scraper search queries on next refresh.
+     */
+    val activeSkills   : List<Skill>        = emptyList(),
+
+    /**
+     * False when TokenGovernor detects the $10/month Gemini budget is exhausted.
+     * UI can surface a "Keyword-only mode" badge when false.
+     */
+    val isGeminiAllowed: Boolean            = true,
 )
 
 /**

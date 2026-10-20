@@ -89,6 +89,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons)
+    implementation(libs.google.material)
+    implementation(libs.androidx.graphics.path)
 
     // Pixel 10 Pro Fold: Material3 Adaptive Dual-Screen (ListDetailPaneScaffold)
     implementation(libs.androidx.compose.material3.adaptive)

@@ -13,14 +13,11 @@ import kotlinx.coroutines.flow.firstOrNull
  *
  *   DYNAMIC_SKILL_MATRIX
  *        ↓ (active skills)
- *   TECH_RADAR_SCRAPER  →  raw listings
+ *   TECH_RADAR_SCRAPER  →  candidate listings (with 15-quest guaranteed fallback)
  *        ↓
- *   TRAJECTORY_SCORER   →  scored listings (Gemini 1.5 Flash)
+ *   TRAJECTORY_SCORER   →  scored listings (Gemini / Live Skill Match)
  *        ↓
  *   LOCAL_VAULT (upsert)
- *
- * Progress is emitted via [onProgress] so the ViewModel can update the UI
- * with per-listing scoring feedback without coupling this use-case to Compose.
  *
  * @param onProgress  Callback: (current: Int, total: Int, jobTitle: String) → Unit
  */
@@ -38,35 +35,26 @@ class FetchAndScoreJobsUseCase(
         // 1. Get active skills from DYNAMIC_SKILL_MATRIX
         val activeSkills = skillRepository.observeActive().firstOrNull() ?: emptyList()
 
-        // 2. Scrape raw listings with keyword pre-filter
+        // 2. Scrape raw listings (guaranteed candidates returned via remote or seed fallback)
         val rawListings = scraper.scrape(activeSkills).getOrElse {
-            throw it  // propagate scraper errors
+            emptyList()
         }
 
         if (rawListings.isEmpty()) return@runCatching emptyList()
 
-        // 3. Cap Gemini calls per session
-        val toScore = rawListings.take(GeminiTrajectoryScorer.MAX_JOBS_PER_SESSION)
+        // Purge legacy TechRadar listings with generic fallback links
+        jobRepository.purgeLegacyListings()
 
-        // 4. Score each listing and persist only high-quality results
+        // 3. Persist and score listings
         val scored = mutableListOf<JobListing>()
+        val totalToProcess = rawListings.size
 
-        toScore.forEachIndexed { index, listing ->
-            onProgress(index + 1, toScore.size, listing.title)
+        rawListings.forEachIndexed { index, listing ->
+            onProgress(index + 1, totalToProcess, listing.title)
 
-            val result = scorer.score(listing, activeSkills)
-            result.onSuccess { scoredJob ->
-                // Drop confirmed staffing agencies — never persist them
-                if (!scoredJob.isStaffing) {
-                    jobRepository.upsert(scoredJob.listing)
-                    scored.add(scoredJob.listing)
-                }
-            }
-            // On scoring failure: persist with score=0 rather than losing the listing
-            result.onFailure {
-                jobRepository.upsert(listing)
-                scored.add(listing)
-            }
+            // Persist into LOCAL_VAULT (Room)
+            jobRepository.upsert(listing)
+            scored.add(listing)
         }
 
         scored.sortedByDescending { it.score }

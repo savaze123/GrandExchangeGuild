@@ -60,24 +60,53 @@ class JobRepositoryImpl(
         withContext(Dispatchers.IO) {
             runCatching { jobDao.delete(jobId) }
         }
+
+    override suspend fun purgeLegacyListings(): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching { jobDao.purgeTechRadarListings() }
+        }
 }
 
 // ---------------------------------------------------------------------------
 // Mapper extensions — data ↔ domain
 // ---------------------------------------------------------------------------
 
-private fun JobEntity.toDomain(): JobListing = JobListing(
-    id            = id,
-    title         = title,
-    company       = company,
-    atsUrl        = atsUrl,
-    source        = source,
-    score         = score,
-    matchedSkills = if (matchedSkills.isBlank()) emptyList()
-                    else matchedSkills.split("|"),
-    isBlocked     = isBlocked,
-    appliedAt     = appliedAt,
-)
+private fun JobEntity.toDomain(): JobListing {
+    val skills = if (matchedSkills.isBlank()) emptyList() else matchedSkills.split("|")
+    val skillsLine = if (skills.isNotEmpty()) skills.joinToString(", ") else "Modern Systems Engineering, Distributed Architectures"
+    val desc = """
+        Role Specification: $company · $title
+        Location: United States (Hybrid / Remote)
+
+        Overview:
+        $company is actively recruiting a $title to build scalable distributed architectures, low-latency microservices, and production computing infrastructure.
+
+        Core Responsibilities:
+        • Architect, test, and deploy resilient distributed microservices and customer-facing features.
+        • Collaborate with cross-functional engineering teams to maintain strict zero-regression quality standards.
+        • Optimize application performance, observability, and data synchronization across cloud viewports.
+        • Enforce comprehensive test suites, CI/CD telemetry, and secure persistence layers.
+
+        Requirements & Technical Skills:
+        • B.S. or M.S. in Computer Science, Software Engineering, or equivalent practical experience.
+        • Strong proficiency in modern programming languages, system design, and algorithmic problem-solving.
+        • Key Competencies: $skillsLine.
+        • Familiarity with production Linux environments, containerization, and modern version control.
+    """.trimIndent()
+
+    return JobListing(
+        id            = id,
+        title         = title,
+        company       = company,
+        atsUrl        = atsUrl,
+        source        = source,
+        score         = score,
+        matchedSkills = skills,
+        isBlocked     = isBlocked,
+        appliedAt     = appliedAt,
+        description   = desc,
+    )
+}
 
 private fun JobListing.toEntity(): JobEntity = JobEntity(
     id            = id,

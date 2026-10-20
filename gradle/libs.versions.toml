@@ -6,17 +6,19 @@ lifecycleRuntimeKtx = "2.8.7"
 activityCompose = "1.10.0"
 composeBom = "2025.02.00"
 material3Adaptive = "1.0.0"
-filament = "1.56.0"
+filament = "1.57.1"
 room = "2.6.1"
-sqlcipher = "4.5.4"
-datastore = "1.1.2"
+sqlcipher = "4.6.1"
+datastore = "1.2.1"
 ktor = "3.0.3"
 kotlinxSerialization = "1.7.3"
 kotlinxCoroutines = "1.10.1"
-mlkitTextRecognition = "16.0.1"
+mlkitTextRecognition = "19.0.1"
 ksp = "2.1.0-1.0.29"
 generativeai = "0.9.0"
 securityCrypto = "1.0.0"
+material = "1.12.0"
+graphicsPath = "1.1.0"
 
 [libraries]
 # AndroidX & Compose
@@ -30,6 +32,7 @@ androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graph
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-compose-material-icons = { group = "androidx.compose.material", name = "material-icons-extended" }
+google-material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 
 # Foldable Adaptive Layout (Pixel 10 Pro Fold)
 androidx-compose-material3-adaptive = { group = "androidx.compose.material3.adaptive", name = "adaptive" }
@@ -45,8 +48,9 @@ filament-utils = { group = "com.google.android.filament", name = "filament-utils
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
-sqlcipher-android = { group = "net.zetetic", name = "android-database-sqlcipher", version.ref = "sqlcipher" }
+sqlcipher-android = { group = "net.zetetic", name = "sqlcipher-android", version.ref = "sqlcipher" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+androidx-graphics-path = { group = "androidx.graphics", name = "graphics-path", version.ref = "graphicsPath" }
 
 # Networking (Ktor Client + Serialization)
 ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
