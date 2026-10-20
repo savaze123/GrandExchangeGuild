@@ -106,7 +106,15 @@
       "id": "TECH_RADAR_SCRAPER",
       "type": "Data_Ingestion",
       "tech": "Kotlin Coroutines + Ktor + ZIP Radius Geo-Filter",
-      "role": "Queries SimplifyJobs/PittCSC GitHub feeds, YCombinator, Wellfound, BuiltIn, and Greenhouse/Lever/Ashby using active skills from DYNAMIC_SKILL_MATRIX."
+      "role": "Queries SimplifyJobs/PittCSC GitHub feeds, YCombinator, Wellfound, BuiltIn, and Greenhouse/Lever/Ashby using active skills from DYNAMIC_SKILL_MATRIX.",
+      "status": "COMPLETED",
+      "completed_in": "feature/di-skill-altar",
+      "completed_files": [
+        "TechRadarScraperImpl.kt",
+        "JobFeedSource.kt",
+        "LinkValidator.kt",
+        "NetworkModule.kt"
+      ]
     },
     {
       "id": "TRAJECTORY_SCORER",
@@ -153,14 +161,21 @@
       "completed_in": "feature/di-skill-altar",
       "completed_files": [
         "ResumeForgePdfGenerator.kt",
-        "ScribeTowerScreen.kt"
+        "ScribeTowerScreen.kt",
+        "UserProfileManager.kt"
       ]
     },
     {
       "id": "AUTO_APPLY_AGENT",
       "type": "Automation_Agent",
       "tech": "Android Headless WebView + DOM Field Mapper",
-      "role": "Auto-fills Greenhouse, Lever, and Ashby forms with user profile + tailored ATS PDF."
+      "role": "Auto-fills Greenhouse, Lever, and Ashby forms with user profile + tailored ATS PDF.",
+      "status": "COMPLETED",
+      "completed_in": "feature/di-skill-altar",
+      "completed_files": [
+        "CourierGuildScreen.kt",
+        "LinkValidator.kt"
+      ]
     },
     {
       "id": "LOCAL_VAULT",

@@ -40,4 +40,7 @@ interface JobDao {
 
     @Query("DELETE FROM jobs WHERE id = :jobId")
     suspend fun delete(jobId: String)
+
+    @Query("DELETE FROM jobs WHERE source LIKE '%TechRadar%' OR (source NOT LIKE '%Simplify%' AND source NOT LIKE '%LinkedIn%')")
+    suspend fun purgeTechRadarListings()
 }

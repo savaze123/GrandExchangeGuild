@@ -132,8 +132,7 @@ fun SkillAltarScreen(
                 border = BorderStroke(2.dp, OsrsGold),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(top = 12.dp, start = 12.dp, end = 12.dp, bottom = 4.dp)
+                    .padding(top = 4.dp, start = 12.dp, end = 12.dp, bottom = 4.dp)
                     .border(
                         1.dp,
                         OsrsDarkBorder,

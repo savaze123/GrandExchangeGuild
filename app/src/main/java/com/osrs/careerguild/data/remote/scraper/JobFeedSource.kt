@@ -18,8 +18,13 @@ sealed interface JobFeedSource {
     val url: String
 
     // -----------------------------------------------------------------------
-    // GitHub-hosted SimplifyJobs JSON feeds (free, no auth, updated daily)
+    // GitHub-hosted Markdown & JSON feeds (free, no auth, updated regularly)
     // -----------------------------------------------------------------------
+
+    data object SimplifyReadmeTable : JobFeedSource {
+        override val label = "SimplifyJobs README (Live)"
+        override val url   = "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/README.md"
+    }
 
     data object SimplifyNewGrad : JobFeedSource {
         override val label = "SimplifyJobs New Grad"
@@ -31,6 +36,55 @@ sealed interface JobFeedSource {
         override val label = "SimplifyJobs Internship"
         override val url   = "https://raw.githubusercontent.com/SimplifyJobs/" +
             "Summer2026-Internships/dev/.github/scripts/listings.json"
+    }
+
+    data object PittCscNewGrad : JobFeedSource {
+        override val label = "PittCSC Tech Listings"
+        override val url   = "https://raw.githubusercontent.com/SimplifyJobs/" +
+            "New-Grad-Positions/dev/.github/scripts/listings.json"
+    }
+
+    // -----------------------------------------------------------------------
+    // Remotive & Arbeitnow Direct JSON APIs
+    // -----------------------------------------------------------------------
+
+    data object RemotiveSoftwareDev : JobFeedSource {
+        override val label = "Remotive (Direct)"
+        override val url   = "https://remotive.com/api/remote-jobs?category=software-dev"
+    }
+
+    data object ArbeitnowJobBoard : JobFeedSource {
+        override val label = "Arbeitnow (Direct)"
+        override val url   = "https://www.arbeitnow.com/api/job-board-api"
+    }
+
+    // -----------------------------------------------------------------------
+    // LinkedIn Direct Job Feed (Direct Requisitions without tracking redirects)
+    // -----------------------------------------------------------------------
+
+    data class LinkedInJobs(
+        val keywords: String = "Software Engineer",
+        val location: String = "United States",
+    ) : JobFeedSource {
+        companion object : JobFeedSource {
+            override val label = "LinkedIn (Direct)"
+            override val url   = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=Software%20Engineer&location=United%20States&start=0"
+        }
+        override val label = "LinkedIn (Direct)"
+        override val url   = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=" +
+            java.net.URLEncoder.encode(keywords, "UTF-8") +
+            "&location=" +
+            java.net.URLEncoder.encode(location, "UTF-8") +
+            "&start=0"
+    }
+
+    // -----------------------------------------------------------------------
+    // Top-Tier Public ATS Endpoints (Middleman-free direct applications)
+    // -----------------------------------------------------------------------
+
+    data class GreenhouseBoard(val slug: String, val companyName: String) : JobFeedSource {
+        override val label = "$companyName ATS (Direct)"
+        override val url   = "https://boards-api.greenhouse.io/v1/boards/$slug/jobs"
     }
 
     // -----------------------------------------------------------------------

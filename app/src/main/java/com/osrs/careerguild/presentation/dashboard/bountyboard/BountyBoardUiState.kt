@@ -31,6 +31,14 @@ data class BountyBoardUiState(
     /** Current search text applied to the jobs list. */
     val searchQuery    : String             = "",
 
+    /**
+     * Search Parameters — Section 3:
+     * Dynamic zip code with configurable search radius.
+     */
+    val zipCode        : String             = "",
+    val searchRadius   : String             = "25 mi",
+    val workMode       : String             = "All",
+
     /** Snackbar-style confirmation after blocking a company. */
     val blockedCompany : String?            = null,
 

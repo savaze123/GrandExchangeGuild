@@ -42,6 +42,9 @@ class FetchAndScoreJobsUseCase(
 
         if (rawListings.isEmpty()) return@runCatching emptyList()
 
+        // Purge legacy TechRadar listings with generic fallback links
+        jobRepository.purgeLegacyListings()
+
         // 3. Persist and score listings
         val scored = mutableListOf<JobListing>()
         val totalToProcess = rawListings.size

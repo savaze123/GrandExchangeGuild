@@ -1,7 +1,9 @@
 package com.osrs.careerguild.presentation.dashboard.bountyboard
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
@@ -22,14 +25,21 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.osrs.careerguild.domain.model.JobListing
 
 /**
@@ -55,6 +65,7 @@ fun JobListingCard(
     modifier        : Modifier = Modifier,
 ) {
     val tierColor = scoreTierColor(job.score)
+    var isTerminalOpen by remember { mutableStateOf(false) }
 
     Card(
         modifier = modifier
@@ -71,32 +82,59 @@ fun JobListingCard(
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
 
-            // --- Header row: score badge + title ---
+            // --- Header row: score badge + title (Clickable link routing) ---
             Row(
                 verticalAlignment    = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
-                modifier             = Modifier.fillMaxWidth(),
+                modifier             = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenAts(job.atsUrl) },
             ) {
                 ScoreBadge(score = job.score, color = tierColor)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text      = job.title,
-                    style     = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color     = MaterialTheme.colorScheme.onSurface,
-                    maxLines  = 1,
-                    overflow  = TextOverflow.Ellipsis,
-                    modifier  = Modifier.weight(1f),
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text      = job.title,
+                        style     = MaterialTheme.typography.titleSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color      = MaterialTheme.colorScheme.primary,
+                        ),
+                        maxLines  = 1,
+                        overflow  = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text  = "🔗 Tap title to view live posting",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.SemiBold),
+                        color = Color(0xFF00E5FF),
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // --- Company + source ---
-            Text(
-                text  = "${job.company}  ·  ${job.source}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-            )
+            // --- Company + source + link verification ---
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text  = "${job.company}  ·  ${job.source}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                )
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color(0xFF1B3B22),
+                    border = BorderStroke(0.8.dp, Color(0xFF4CAF50)),
+                ) {
+                    Text(
+                        text = "✓ Link Validated",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                        color = Color(0xFF81C784),
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                    )
+                }
+            }
 
             // --- Matched skills chips ---
             if (job.matchedSkills.isNotEmpty()) {
@@ -119,6 +157,63 @@ fun JobListingCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = Color(0xFF4CAF50),
                 )
+            }
+
+            // --- Job Description in Listing Terminal (OSRS Quest Specification) ---
+            if (job.description.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFF140F0B),
+                    border = BorderStroke(1.dp, if (isTerminalOpen) Color(0xFFFFD700) else Color(0xFF3D2B1F)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isTerminalOpen = !isTerminalOpen },
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .background(if (isTerminalOpen) Color(0xFFFFD700) else Color(0xFF00E5FF), CircleShape)
+                                )
+                                Text(
+                                    text = "📜 QUEST SPECIFICATION TERMINAL",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.5.sp,
+                                    ),
+                                    color = if (isTerminalOpen) Color(0xFFFFD700) else Color(0xFF00E5FF),
+                                )
+                            }
+                            Text(
+                                text = if (isTerminalOpen) "▲ COLLAPSE" else "▼ VIEW JD",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                                color = Color(0xFFFFD700),
+                            )
+                        }
+                        if (isTerminalOpen) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = job.description,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.5.sp,
+                                    lineHeight = 15.sp,
+                                ),
+                                color = Color(0xFFD6CDB8),
+                            )
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))

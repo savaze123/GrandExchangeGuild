@@ -28,6 +28,7 @@ class CareerGuildApp : Application() {
 
         // Filament must be init'd before any Engine instance is created (main thread only)
         FilamentUtils.init()
+        com.google.android.filament.gltfio.Gltfio.init()
 
         // Wire the full dependency graph
         appContainer = AppContainer(this)

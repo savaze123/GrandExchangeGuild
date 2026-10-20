@@ -27,4 +27,5 @@ data class JobListing(
     val matchedSkills : List<String>   = emptyList(),
     val isBlocked     : Boolean        = false,
     val appliedAt     : String?        = null,
+    val description   : String         = "",
 )

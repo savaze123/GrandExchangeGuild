@@ -90,7 +90,7 @@ fun CollapsibleGuildOverlay(
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val screenHeightPx = constraints.maxHeight.toFloat()
-        val peekHeightDp = 76.dp
+        val peekHeightDp = 58.dp
         val peekHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) { peekHeightDp.toPx() }
 
         // Animation progress: 0.0f = collapsed (peek only), 1.0f = fully expanded
@@ -104,8 +104,8 @@ fun CollapsibleGuildOverlay(
             label = "GuildDrawerExpansion",
         )
 
-        // Expanded drawer occupies ~92% of the screen height
-        val expandedHeightPx = screenHeightPx * 0.92f
+        // Expanded drawer occupies ~88% of screen height to guarantee the top status bar & header banner are never occluded
+        val expandedHeightPx = screenHeightPx * 0.88f
         val collapsedOffsetY = screenHeightPx - peekHeightPx
         val expandedOffsetY = screenHeightPx - expandedHeightPx
 
@@ -222,61 +222,29 @@ private fun DrawerTopDragBar(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .clickable { onToggleExpand() }
                     .padding(vertical = 4.dp),
             ) {
                 Text(
-                    text = if (isExpanded) "▼ Guild Drawer (Tap to Collapse)" else "▲ Guild Navigation Drawer (Tap / Swipe Up)",
+                    text = if (isExpanded) "▼ Guild Drawer (Tap to Collapse)" else "▲ Guild Drawer (Tap 3D Structures to Enter)",
                     style = MaterialTheme.typography.labelMedium.copy(
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.5.sp,
                     ),
                     color = OsrsGold,
                 )
-                InfoTooltipTrigger(
-                    title = "Collapsible Guild Tab Overlay",
-                    explanation = "The 120Hz Filament 3D Town Hub runs continuously in the background edge-to-edge. " +
-                            "This semi-transparent overlay slides up over the 3D world without unmounting or resetting your view.",
-                )
             }
 
-            // Quick-Launch Building Chips when collapsed
             if (!isExpanded) {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp),
-                ) {
-                    items(GuildBuilding.entries) { building ->
-                        val isSelected = building == selectedBuilding
-                        Box(
-                            modifier = Modifier
-                                .background(
-                                    if (isSelected) OsrsBrown else OsrsStone,
-                                    RoundedCornerShape(6.dp),
-                                )
-                                .border(
-                                    1.dp,
-                                    if (isSelected) OsrsGold else OsrsDarkBorder,
-                                    RoundedCornerShape(6.dp),
-                                )
-                                .clickable { onSelectBuilding(building) }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                        ) {
-                            Text(
-                                text = when (building) {
-                                    GuildBuilding.BOUNTY_BOARD  -> "📋 Quests"
-                                    GuildBuilding.SCRIBE_TOWER  -> "📜 Scribe"
-                                    GuildBuilding.SKILL_ALTAR   -> "⚗ Skills"
-                                    GuildBuilding.COURIER_GUILD -> "📬 Courier"
-                                },
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = if (isSelected) OsrsGold else OsrsTextDim,
-                            )
-                        }
-                    }
-                }
+                Text(
+                    text = "Tap 3D Guild Buildings ⚔",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = OsrsCyan,
+                    modifier = Modifier
+                        .clickable { onToggleExpand() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
             }
         }
     }
@@ -316,18 +284,24 @@ private fun GuildDrawerHeader(
                     explanation = "Select any of the 4 Guild Modules to forge ATS resumes, track live tech bounties, inspect your skill matrix, or dispatch applications with automated ledger telemetry.",
                 )
             }
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = OsrsStone,
-                border = BorderStroke(1.dp, OsrsGold),
-                modifier = Modifier.clickable { onCollapse() },
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    text = "▼ Collapse to 3D Hub",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    color = OsrsGold,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                )
+                com.osrs.careerguild.presentation.auth.GoogleAuthBadge()
+                Surface(
+                    onClick = onCollapse,
+                    shape = RoundedCornerShape(6.dp),
+                    color = OsrsStone,
+                    border = BorderStroke(1.dp, OsrsGold),
+                ) {
+                    Text(
+                        text = "▼ 3D Hub",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = OsrsGold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
             }
         }
 

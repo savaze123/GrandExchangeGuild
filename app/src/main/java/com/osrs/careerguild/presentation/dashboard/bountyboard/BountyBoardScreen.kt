@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,11 +22,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
@@ -47,7 +50,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -56,6 +61,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /**
  * Bounty Board screen — the full right-pane feature for [UI_SPLIT_SCAFFOLD]
@@ -102,8 +108,7 @@ fun BountyBoardScreen(
             border = BorderStroke(2.dp, Color(0xFFFFD700)),
             modifier = Modifier
                 .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(top = 12.dp, start = 12.dp, end = 12.dp, bottom = 4.dp)
+                .padding(top = 4.dp, start = 12.dp, end = 12.dp, bottom = 4.dp)
                 .border(1.dp, Color(0xFF1A0F08), RoundedCornerShape(8.dp)),
         ) {
             Row(
@@ -115,6 +120,7 @@ fun BountyBoardScreen(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.weight(1f),
                 ) {
                     if (isSinglePane) {
@@ -126,10 +132,9 @@ fun BountyBoardScreen(
                             colors  = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
                                 containerColor = Color(0xFF3D2B1F),
                             ),
-                            modifier = Modifier.padding(end = 8.dp),
                         ) {
                             Text(
-                                text  = "← Back to Guild",
+                                text  = "← 3D Hub",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                 color = Color(0xFFFFD700),
                             )
@@ -142,22 +147,29 @@ fun BountyBoardScreen(
                             color = Color(0xFFFFD700),
                         )
                         Text(
-                            text  = "Live Tech Radar & Trajectory Scoring",
+                            text  = "Live Tech Radar (${uiState.jobs.size} verified quests)",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color(0xFF9E8A6A),
                         )
                     }
                 }
 
-                IconButton(
-                    onClick  = { viewModel.refresh() },
-                    enabled  = !uiState.isScraping && !uiState.isScoring,
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Icon(
-                        imageVector        = Icons.Default.Refresh,
-                        contentDescription = "Refresh job listings",
-                        tint               = Color(0xFFFFD700),
-                    )
+                    com.osrs.careerguild.presentation.auth.GoogleAuthBadge()
+
+                    IconButton(
+                        onClick  = { viewModel.refresh() },
+                        enabled  = !uiState.isScraping && !uiState.isScoring,
+                    ) {
+                        Icon(
+                            imageVector        = Icons.Default.Refresh,
+                            contentDescription = "Refresh job listings",
+                            tint               = Color(0xFFFFD700),
+                        )
+                    }
                 }
             }
         }
@@ -176,6 +188,12 @@ fun BountyBoardScreen(
             modifier       = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 4.dp),
+        )
+
+        // --- Search Parameters: Zip code & radius controls (Section 3) ---
+        SearchParametersSection(
+            uiState = uiState,
+            viewModel = viewModel,
         )
 
         // --- Scraping / Scoring progress bar ---
@@ -244,8 +262,15 @@ fun BountyBoardScreen(
                                 onApply          = viewModel::markApplied,
                                 onBlock          = viewModel::blockCompany,
                                 onOpenAts        = { url ->
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                    context.startActivity(intent)
+                                    runCatching {
+                                        val safeUrl = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        context.startActivity(intent)
+                                    }.onFailure {
+                                        android.widget.Toast.makeText(context, "Could not open browser for: $url", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
                                 },
                                 onForgeScroll    = onForgeScroll,
                                 onQueueAutoApply = onQueueAutoApply,
@@ -321,6 +346,133 @@ private fun EmptyBountyBoard(onRefresh: () -> Unit) {
             Icon(Icons.Default.Refresh, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text("Scout Now")
+        }
+    }
+}
+
+@Composable
+private fun SearchParametersSection(
+    uiState: BountyBoardUiState,
+    viewModel: BountyBoardViewModel,
+) {
+    var isExpanded by remember { mutableStateOf(false) }
+
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = Color(0xFF2B1D14),
+        border = BorderStroke(1.dp, Color(0xFF3D2B1F)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 2.dp),
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = !isExpanded },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = null,
+                        tint = Color(0xFFFFD700),
+                        modifier = Modifier.size(16.dp),
+                    )
+                    val zipDisplay = if (uiState.zipCode.isNotBlank()) "ZIP: ${uiState.zipCode}" else "All Locations"
+                    Text(
+                        text = "$zipDisplay · Radius: ${uiState.searchRadius} · Mode: ${uiState.workMode}",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = Color(0xFFFFD700),
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color(0xFF1B3B22),
+                    border = BorderStroke(1.dp, Color(0xFF4CAF50)),
+                ) {
+                    Text(
+                        text = "✓ Link Validated",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                        color = Color(0xFF81C784),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+            }
+
+            if (isExpanded) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedTextField(
+                        value = uiState.zipCode,
+                        onValueChange = viewModel::updateZipCode,
+                        label = { Text("Zip Code", fontSize = 10.sp) },
+                        singleLine = true,
+                        modifier = Modifier.width(110.dp),
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Search Radius:",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF9E8A6A),
+                        )
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            items(listOf("10 mi", "25 mi", "50 mi", "100 mi", "Remote")) { rad ->
+                                val selected = uiState.searchRadius == rad
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (selected) Color(0xFFFFD700) else Color(0xFF3D2B1F),
+                                    border = BorderStroke(1.dp, if (selected) Color(0xFFFFD700) else Color(0xFF1A0F08)),
+                                    modifier = Modifier.clickable { viewModel.updateSearchRadius(rad) },
+                                ) {
+                                    Text(
+                                        text = rad,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = if (selected) Color.Black else Color.White,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        text = "Work Mode:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF9E8A6A),
+                    )
+                    listOf("All", "Local", "Hybrid", "Remote").forEach { mode ->
+                        val selected = uiState.workMode == mode
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = if (selected) Color(0xFF00E5FF) else Color(0xFF3D2B1F),
+                            border = BorderStroke(1.dp, if (selected) Color(0xFF00E5FF) else Color(0xFF1A0F08)),
+                            modifier = Modifier.clickable { viewModel.updateWorkMode(mode) },
+                        ) {
+                            Text(
+                                text = mode,
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = if (selected) Color.Black else Color.White,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

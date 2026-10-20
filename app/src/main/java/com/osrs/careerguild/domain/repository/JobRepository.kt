@@ -34,4 +34,7 @@ interface JobRepository {
 
     /** Delete a job by id. */
     suspend fun delete(jobId: String): Result<Unit>
+
+    /** Purge legacy TechRadar listings with generic portals. */
+    suspend fun purgeLegacyListings(): Result<Unit>
 }
