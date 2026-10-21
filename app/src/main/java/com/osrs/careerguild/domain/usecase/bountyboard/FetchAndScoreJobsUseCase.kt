@@ -42,21 +42,14 @@ class FetchAndScoreJobsUseCase(
 
         if (rawListings.isEmpty()) return@runCatching emptyList()
 
-        // Purge legacy TechRadar listings with generic fallback links
-        jobRepository.purgeLegacyListings()
+        // 3. Persist into LOCAL_VAULT (Room) via batch upsertAll
+        jobRepository.upsertAll(rawListings)
 
-        // 3. Persist and score listings
-        val scored = mutableListOf<JobListing>()
         val totalToProcess = rawListings.size
-
         rawListings.forEachIndexed { index, listing ->
             onProgress(index + 1, totalToProcess, listing.title)
-
-            // Persist into LOCAL_VAULT (Room)
-            jobRepository.upsert(listing)
-            scored.add(listing)
         }
 
-        scored.sortedByDescending { it.score }
+        rawListings.sortedByDescending { it.score }
     }
 }

@@ -25,8 +25,18 @@ class JobRepositoryImpl(
     private val blockedCompanyDao : BlockedCompanyDao,
 ) : JobRepository {
 
+    // In-memory cache layer with timestamps & expiry (1 hour TTL)
+    private var cachedJobs: List<JobListing>? = null
+    private var cacheTimestamp: Long = 0L
+    private val CACHE_TTL_MS = 60 * 60 * 1000L // 1 hour
+
     override fun observeAll(): Flow<List<JobListing>> =
-        jobDao.observeAll().map { list -> list.map(JobEntity::toDomain) }
+        jobDao.observeAll().map { list ->
+            val domain = list.map(JobEntity::toDomain)
+            cachedJobs = domain
+            cacheTimestamp = System.currentTimeMillis()
+            domain
+        }
 
     override fun search(query: String): Flow<List<JobListing>> =
         jobDao.search(query).map { list -> list.map(JobEntity::toDomain) }
@@ -34,6 +44,18 @@ class JobRepositoryImpl(
     override suspend fun upsert(job: JobListing): Result<Unit> =
         withContext(Dispatchers.IO) {
             runCatching { jobDao.upsert(job.toEntity()) }
+        }
+
+    override suspend fun upsertAll(jobs: List<JobListing>): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                jobDao.upsertAll(jobs.map { it.toEntity() })
+            }
+        }
+
+    override suspend fun getCount(): Int =
+        withContext(Dispatchers.IO) {
+            runCatching { jobDao.getCount() }.getOrDefault(0)
         }
 
     override suspend fun markApplied(jobId: String, appliedAt: String): Result<Unit> =

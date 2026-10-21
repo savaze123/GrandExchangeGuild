@@ -65,6 +65,7 @@ sealed interface JobFeedSource {
     data class LinkedInJobs(
         val keywords: String = "Software Engineer",
         val location: String = "United States",
+        val start: Int = 0,
     ) : JobFeedSource {
         companion object : JobFeedSource {
             override val label = "LinkedIn (Direct)"
@@ -75,7 +76,7 @@ sealed interface JobFeedSource {
             java.net.URLEncoder.encode(keywords, "UTF-8") +
             "&location=" +
             java.net.URLEncoder.encode(location, "UTF-8") +
-            "&start=0"
+            "&start=$start"
     }
 
     // -----------------------------------------------------------------------
@@ -83,8 +84,18 @@ sealed interface JobFeedSource {
     // -----------------------------------------------------------------------
 
     data class GreenhouseBoard(val slug: String, val companyName: String) : JobFeedSource {
-        override val label = "$companyName ATS (Direct)"
+        override val label = "$companyName (Greenhouse)"
         override val url   = "https://boards-api.greenhouse.io/v1/boards/$slug/jobs"
+    }
+
+    data class LeverBoard(val slug: String, val companyName: String) : JobFeedSource {
+        override val label = "$companyName (Lever)"
+        override val url   = "https://api.lever.co/v0/postings/$slug?mode=json"
+    }
+
+    data class AshbyBoard(val slug: String, val companyName: String) : JobFeedSource {
+        override val label = "$companyName (Ashby)"
+        override val url   = "https://api.ashbyhq.com/posting-api/job-board/$slug"
     }
 
     // -----------------------------------------------------------------------

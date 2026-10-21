@@ -32,6 +32,12 @@ interface JobDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(job: JobEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(jobs: List<JobEntity>)
+
+    @Query("SELECT COUNT(*) FROM jobs WHERE is_blocked = 0")
+    suspend fun getCount(): Int
+
     @Query("UPDATE jobs SET applied_at = :appliedAt WHERE id = :jobId")
     suspend fun markApplied(jobId: String, appliedAt: String)
 
@@ -41,6 +47,6 @@ interface JobDao {
     @Query("DELETE FROM jobs WHERE id = :jobId")
     suspend fun delete(jobId: String)
 
-    @Query("DELETE FROM jobs WHERE source LIKE '%TechRadar%' OR (source NOT LIKE '%Simplify%' AND source NOT LIKE '%LinkedIn%')")
+    @Query("DELETE FROM jobs WHERE source LIKE '%TechRadar%'")
     suspend fun purgeTechRadarListings()
 }

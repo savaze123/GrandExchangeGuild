@@ -26,6 +26,12 @@ interface JobRepository {
     /** Persist or update a scored job listing. */
     suspend fun upsert(job: JobListing): Result<Unit>
 
+    /** Persist or update multiple scored job listings in a batch. */
+    suspend fun upsertAll(jobs: List<JobListing>): Result<Unit>
+
+    /** Count of active non-blocked jobs in LOCAL_VAULT. */
+    suspend fun getCount(): Int
+
     /** Mark a job as applied with an ISO-8601 timestamp. */
     suspend fun markApplied(jobId: String, appliedAt: String): Result<Unit>
 
