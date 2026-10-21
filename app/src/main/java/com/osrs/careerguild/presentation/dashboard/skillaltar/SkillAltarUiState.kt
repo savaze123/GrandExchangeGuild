@@ -24,7 +24,9 @@ data class SkillAltarUiState(
     // --- Add-Skill form state ---
     val addSkillName       : String          = "",
     val addSkillCategory   : String          = "Custom",
+    val customCategoryName : String          = "",
     val isAddSkillExpanded : Boolean         = false,
+    val customCategories   : List<String>    = emptyList(),
 
     /** Non-null when an operation succeeded (shown as Snackbar). */
     val successMessage     : String?         = null,

@@ -59,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -68,6 +69,7 @@ import com.osrs.careerguild.core.profile.UserProfile
 import com.osrs.careerguild.core.profile.UserProfileManager
 import com.osrs.careerguild.domain.model.GuildBuilding
 import com.osrs.careerguild.domain.model.JobListing
+import com.osrs.careerguild.presentation.common.InfoTooltipTrigger
 
 private val OsrsGold       = Color(0xFFFFD700)
 private val OsrsStone      = Color(0xFF3D2B1F)
@@ -186,16 +188,20 @@ fun ScribeTowerScreen(
                             )
                         }
                     }
-                    Column {
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
                         Text(
                             text  = "📜 Scribe Tower",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = OsrsGold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text  = "ATS Resume & Cover Letter Forge (<100KB Native PDF · 7/8 Page Density)",
+                            text  = "ATS Resume & Cover Letter Forge",
                             style = MaterialTheme.typography.labelSmall,
                             color = OsrsTextDim,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -538,7 +544,7 @@ private fun CustomSummaryCard(
                 onValueChange = onSummaryChange,
                 placeholder = {
                     Text(
-                        "Auto-synthesized ATS summary dynamically balances to 7/8 page density...",
+                        "Auto-synthesized ATS summary dynamically tailored to role...",
                         style = MaterialTheme.typography.bodySmall,
                         color = OsrsTextDim.copy(alpha = 0.6f),
                     )
@@ -576,16 +582,21 @@ private fun ForgeActionCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f, fill = false),
+                ) {
                     Text(
                         text = "⚡ Native ATS PDF Generator",
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         color = OsrsGold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                    Text(
-                        text = "Strictly single-column UTF-8 · <100KB · 7/8 page density",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = OsrsTextDim,
+                    InfoTooltipTrigger(
+                        title = "Native ATS PDF Generator Specifications",
+                        explanation = "Strictly single-column UTF-8 formatting under 100KB, calibrated to standard 1-page ATS benchmarks for guaranteed parser readability.",
                     )
                 }
 
@@ -594,6 +605,7 @@ private fun ForgeActionCard(
                     enabled = !isForging,
                     shape = RoundedCornerShape(6.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = OsrsGold),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 ) {
                     if (isForging) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black)
@@ -615,7 +627,7 @@ private fun ForgeActionCard(
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
                         Text(
-                            text = "✅ Forged: ${String.format("%.1f", forgeResult.fileSizeKb)} KB (7/8 Page ATS Density Verified)",
+                            text = "✅ Forged: ${String.format("%.1f", forgeResult.fileSizeKb)} KB (1-Page ATS Benchmark Verified)",
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                             color = Color(0xFF81C784),
                         )
@@ -800,9 +812,9 @@ private fun AtsParchmentPreview(
                 text = "Grand Exchange Guild  |  Android & Spatial 3D Platform\n" +
                        "• Architected 120Hz Filament 3D rendering pipeline and reactive Compose scaffold supporting foldable postures (Tensor G5).\n" +
                        "• Built token-governed budget guardrails with monthly spending ceilings and offline fallback caching (100% uptime).\n" +
-                       "Relational Database Storage Engine  |  High-Performance Systems Architecture\n" +
-                       "• Engineered a disk-backed relational database storage engine in C++ featuring B+ Tree indexing, LRU buffer pool, and WAL.\n" +
-                       "• Implemented transactional ACID-compliant page serialization ensuring zero data corruption across process crashes.",
+                       "European Car Manufacturer Data Modeling  |  Relational Database Architecture\n" +
+                       "• Collaborated to design a robust relational database schema and subject-area diagrams using ERwin and SQL.\n" +
+                       "• Built audit table triggers and implemented temporal versioning across PostgreSQL, SQL Server, and MySQL.",
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
                 color = Color(0xFF222222),
             )

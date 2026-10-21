@@ -2,6 +2,7 @@ package com.osrs.careerguild.presentation.dashboard.bountyboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.osrs.careerguild.core.location.JobLocationUtils
 import com.osrs.careerguild.core.token.TokenGovernor
 import com.osrs.careerguild.domain.model.JobListing
 import com.osrs.careerguild.domain.model.Skill
@@ -71,6 +72,9 @@ class BountyBoardViewModel(
         jobs: List<JobListing>,
         query: String,
         activeSkills: List<Skill>,
+        zipCode: String = _uiState.value.zipCode,
+        radius: String = _uiState.value.searchRadius,
+        workMode: String = _uiState.value.workMode,
     ): List<JobListing> {
         val q = query.trim()
         val activeSkillNames = activeSkills.filter { it.isActive }.map { it.name.lowercase() }
@@ -96,7 +100,22 @@ class BountyBoardViewModel(
                     j.title.lowercase().contains(s) || j.company.lowercase().contains(s)
                 }
 
-            matchesQuery && matchesSkill
+            // Geographic radius filter
+            val matchesRadius = JobLocationUtils.matchesRadius(
+                jobLocation = j.location,
+                workMode = j.workMode,
+                userZip = zipCode.ifBlank { "11581" },
+                searchRadius = radius,
+            )
+
+            // Work mode filter (All, Local, Hybrid, Remote)
+            val matchesWorkMode = JobLocationUtils.matchesWorkMode(
+                jobWorkMode = j.workMode,
+                jobLocation = j.location,
+                filterMode = workMode,
+            )
+
+            matchesQuery && matchesSkill && matchesRadius && matchesWorkMode
         }
     }
 
@@ -114,7 +133,7 @@ class BountyBoardViewModel(
                     cachedAllJobs = jobs
                     _uiState.update { state ->
                         state.copy(
-                            jobs = filterJobs(cachedAllJobs, state.searchQuery, state.activeSkills),
+                            jobs = filterJobs(cachedAllJobs, state.searchQuery, state.activeSkills, state.zipCode, state.searchRadius, state.workMode),
                             isLoading = false,
                         )
                     }
@@ -134,7 +153,7 @@ class BountyBoardViewModel(
                     _uiState.update { state ->
                         state.copy(
                             activeSkills = skills,
-                            jobs = filterJobs(cachedAllJobs, state.searchQuery, skills),
+                            jobs = filterJobs(cachedAllJobs, state.searchQuery, skills, state.zipCode, state.searchRadius, state.workMode),
                         )
                     }
                 }
@@ -211,7 +230,7 @@ class BountyBoardViewModel(
         _uiState.update { state ->
             state.copy(
                 searchQuery = query,
-                jobs = filterJobs(cachedAllJobs, query, state.activeSkills),
+                jobs = filterJobs(cachedAllJobs, query, state.activeSkills, state.zipCode, state.searchRadius, state.workMode),
             )
         }
     }
@@ -224,12 +243,32 @@ class BountyBoardViewModel(
         _uiState.update { it.copy(zipCode = zip) }
     }
 
+    fun applyZipCode(zip: String) {
+        _uiState.update { state ->
+            val clean = zip.trim()
+            state.copy(
+                zipCode = clean,
+                jobs = filterJobs(cachedAllJobs, state.searchQuery, state.activeSkills, clean, state.searchRadius, state.workMode),
+            )
+        }
+    }
+
     fun updateSearchRadius(radius: String) {
-        _uiState.update { it.copy(searchRadius = radius) }
+        _uiState.update { state ->
+            state.copy(
+                searchRadius = radius,
+                jobs = filterJobs(cachedAllJobs, state.searchQuery, state.activeSkills, state.zipCode, radius, state.workMode),
+            )
+        }
     }
 
     fun updateWorkMode(mode: String) {
-        _uiState.update { it.copy(workMode = mode) }
+        _uiState.update { state ->
+            state.copy(
+                workMode = mode,
+                jobs = filterJobs(cachedAllJobs, state.searchQuery, state.activeSkills, state.zipCode, state.searchRadius, mode),
+            )
+        }
     }
 
     // ---------------------------------------------------------------------------

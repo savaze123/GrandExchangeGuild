@@ -264,6 +264,11 @@ class TechRadarScraperImpl(
             val finalScore = minOf(99, maxOf(85, baseScore + matchBonus))
 
             val desc = generateJobDescription(company, role, location, matched)
+            val workMode = when {
+                location.contains("Remote", ignoreCase = true) || role.contains("Remote", ignoreCase = true) -> "Remote"
+                location.contains("Hybrid", ignoreCase = true) || role.contains("Hybrid", ignoreCase = true) -> "Hybrid"
+                else -> "Local"
+            }
 
             result.add(
                 JobListing(
@@ -277,6 +282,8 @@ class TechRadarScraperImpl(
                     isBlocked     = false,
                     appliedAt     = null,
                     description   = desc,
+                    location      = location.ifBlank { "New York, NY" },
+                    workMode      = workMode,
                 )
             )
 
@@ -372,6 +379,11 @@ class TechRadarScraperImpl(
             val matchBonus = matched.size * 3
             val finalScore = minOf(99, maxOf(88, baseScore + matchBonus))
             val desc = generateJobDescription(company, title, location, matched)
+            val workMode = when {
+                location.contains("Remote", ignoreCase = true) || title.contains("Remote", ignoreCase = true) -> "Remote"
+                location.contains("Hybrid", ignoreCase = true) || title.contains("Hybrid", ignoreCase = true) -> "Hybrid"
+                else -> "Local"
+            }
 
             result.add(
                 JobListing(
@@ -385,6 +397,8 @@ class TechRadarScraperImpl(
                     isBlocked     = false,
                     appliedAt     = null,
                     description   = desc,
+                    location      = location.ifBlank { "New York, NY" },
+                    workMode      = workMode,
                 )
             )
             if (result.size >= limit) break
@@ -400,21 +414,21 @@ class TechRadarScraperImpl(
         limit: Int = 10,
     ): List<JobListing> {
         val verifiedDirectLinkedInJobs = listOf(
-            Triple("Affirm", "Software Engineer I, Fullstack (Search)", "https://www.linkedin.com/jobs/view/4479305237"),
-            Triple("Amazon Web Services (AWS)", "Software Development Engineer, AWS IAM Distributed Systems", "https://www.linkedin.com/jobs/view/4455931376"),
-            Triple("JPMorganChase", "Software Engineer II, Full Stack Developer", "https://www.linkedin.com/jobs/view/4456432894"),
-            Triple("Northrop Grumman", "Java Software Engineer (Level 2 or 3)", "https://www.linkedin.com/jobs/view/4476382792"),
-            Triple("CLEAR", "Software Development Engineer III", "https://www.linkedin.com/jobs/view/4471641260"),
-            Triple("General Motors", "Senior Software Engineer – Go (Golang)", "https://www.linkedin.com/jobs/view/4419969671"),
-            Triple("Affirm", "Software Engineer I, Fullstack (Boise)", "https://www.linkedin.com/jobs/view/4479190948"),
-            Triple("JPMorganChase", "Software Engineer II (Java/AWS)", "https://www.linkedin.com/jobs/view/4476983365"),
+            LinkedInFallbackSeed("Affirm", "Software Engineer I, Fullstack (Search)", "https://www.linkedin.com/jobs/view/4479305237", "New York, NY", "Hybrid"),
+            LinkedInFallbackSeed("Amazon Web Services (AWS)", "Software Development Engineer, AWS IAM Distributed Systems", "https://www.linkedin.com/jobs/view/4455931376", "New York, NY", "Local"),
+            LinkedInFallbackSeed("JPMorganChase", "Software Engineer II, Full Stack Developer", "https://www.linkedin.com/jobs/view/4456432894", "New York, NY", "Hybrid"),
+            LinkedInFallbackSeed("Northrop Grumman", "Java Software Engineer (Level 2 or 3)", "https://www.linkedin.com/jobs/view/4476382792", "Melbourne, FL", "Local"),
+            LinkedInFallbackSeed("CLEAR", "Software Development Engineer III", "https://www.linkedin.com/jobs/view/4471641260", "New York, NY", "Local"),
+            LinkedInFallbackSeed("General Motors", "Senior Software Engineer – Go (Golang)", "https://www.linkedin.com/jobs/view/4419969671", "Warren, MI (Hybrid)", "Hybrid"),
+            LinkedInFallbackSeed("Affirm", "Software Engineer I, Fullstack (Boise)", "https://www.linkedin.com/jobs/view/4479190948", "Boise, ID", "Hybrid"),
+            LinkedInFallbackSeed("JPMorganChase", "Software Engineer II (Java/AWS)", "https://www.linkedin.com/jobs/view/4476983365", "New York, NY", "Hybrid"),
         )
 
         return verifiedDirectLinkedInJobs
-            .filter { (company, _, _) -> !blockedNames.contains(company.lowercase()) }
+            .filter { !blockedNames.contains(it.company.lowercase()) }
             .take(limit)
-            .map { (company, title, url) ->
-                val fullText = "$title $company".lowercase()
+            .map { seed ->
+                val fullText = "${seed.title} ${seed.company}".lowercase()
                 val matched = activeSkillNames.filterIndexed { index, _ ->
                     fullText.contains(activeSkillLower[index])
                 }
@@ -423,16 +437,18 @@ class TechRadarScraperImpl(
                 val finalScore = minOf(99, maxOf(89, baseScore + matchBonus))
 
                 JobListing(
-                    id            = "linkedin_${company.lowercase()}_${title.lowercase()}".hashToId(),
-                    title         = title,
-                    company       = company,
-                    atsUrl        = url,
+                    id            = "linkedin_${seed.company.lowercase()}_${seed.title.lowercase()}".hashToId(),
+                    title         = seed.title,
+                    company       = seed.company,
+                    atsUrl        = seed.url,
                     source        = "LinkedIn (Direct)",
                     score         = finalScore,
                     matchedSkills = if (matched.isNotEmpty()) matched else (activeSkillNames.take(3) + listOf("Software Engineering", "Cloud")).distinct(),
                     isBlocked     = false,
                     appliedAt     = null,
-                    description   = generateJobDescription(company, title, "United States (Hybrid / Remote)", matched),
+                    description   = generateJobDescription(seed.company, seed.title, seed.location, matched),
+                    location      = seed.location,
+                    workMode      = seed.workMode,
                 )
             }
     }
@@ -484,6 +500,8 @@ class TechRadarScraperImpl(
                     isBlocked     = false,
                     appliedAt     = null,
                     description   = desc,
+                    location      = loc.ifBlank { "Remote (US / Worldwide)" },
+                    workMode      = "Remote",
                 )
             )
             if (result.size >= limit) break
@@ -541,6 +559,7 @@ class TechRadarScraperImpl(
             val finalScore = minOf(99, maxOf(50, baseScore + matchBonus))
 
             val desc = generateJobDescription(comp, title, loc, matched)
+            val workMode = if (dto.remote == true || loc.contains("Remote", true)) "Remote" else if (loc.contains("Hybrid", true)) "Hybrid" else "Local"
 
             result.add(
                 JobListing(
@@ -554,6 +573,8 @@ class TechRadarScraperImpl(
                     isBlocked     = false,
                     appliedAt     = null,
                     description   = desc,
+                    location      = loc,
+                    workMode      = workMode,
                 )
             )
             if (result.size >= limit) break
@@ -604,6 +625,7 @@ class TechRadarScraperImpl(
             val finalScore = minOf(99, maxOf(55, baseScore + matchBonus))
 
             val desc = generateJobDescription(source.companyName, title, loc, matched)
+            val workMode = if (loc.contains("Remote", true) || title.contains("Remote", true)) "Remote" else if (loc.contains("Hybrid", true)) "Hybrid" else "Local"
 
             result.add(
                 JobListing(
@@ -617,6 +639,8 @@ class TechRadarScraperImpl(
                     isBlocked     = false,
                     appliedAt     = null,
                     description   = desc,
+                    location      = loc,
+                    workMode      = workMode,
                 )
             )
             if (result.size >= limit) break
@@ -663,29 +687,29 @@ class TechRadarScraperImpl(
     ): List<JobListing> {
         val rawSeeds = listOf(
             RawSeed("Canonical", "Software Engineer - Ubuntu Core & Embedded Linux", "https://job-boards.greenhouse.io/canonical/jobs/5730303003",
-                listOf("C++", "Linux", "Python", "Git", "Embedded"), 95),
+                listOf("C++", "Linux", "Python", "Git", "Embedded"), 95, "Austin, TX (Remote)", "Remote"),
             RawSeed("Palantir", "Forward Deployed Software Engineer - New Grad", "https://jobs.lever.co/palantir/0f7d1e01-1f74-4786-944d-910208d390fa/apply",
-                listOf("Python", "Java", "Distributed Systems", "SQL", "Git"), 96),
+                listOf("Python", "Java", "Distributed Systems", "SQL", "Git"), 96, "New York, NY", "Hybrid"),
             RawSeed("Affirm", "Software Engineer I, Fullstack (Search)", "https://www.linkedin.com/jobs/view/4479305237",
-                listOf("Kotlin", "Python", "Fullstack", "Search", "Distributed Systems"), 94),
+                listOf("Kotlin", "Python", "Fullstack", "Search", "Distributed Systems"), 94, "New York, NY", "Hybrid"),
             RawSeed("Amazon Web Services (AWS)", "Software Development Engineer, AWS IAM", "https://www.linkedin.com/jobs/view/4455931376",
-                listOf("Java", "Distributed Systems", "AWS", "SQL", "REST APIs"), 93),
+                listOf("Java", "Distributed Systems", "AWS", "SQL", "REST APIs"), 93, "New York, NY", "Local"),
             RawSeed("Cloudflare", "Systems Engineer - Edge Infrastructure", "https://boards.greenhouse.io/cloudflare/jobs/5820392",
-                listOf("Rust", "Go", "Distributed Systems", "Linux", "Networking"), 92),
+                listOf("Rust", "Go", "Distributed Systems", "Linux", "Networking"), 92, "San Francisco, CA (Remote)", "Remote"),
             RawSeed("JPMorganChase", "Software Engineer II, Full Stack Developer", "https://www.linkedin.com/jobs/view/4456432894",
-                listOf("Java", "React", "Cloud", "SQL", "Docker"), 91),
+                listOf("Java", "React", "Cloud", "SQL", "Docker"), 91, "New York, NY", "Hybrid"),
             RawSeed("Figma", "Software Engineer - Core Systems", "https://jobs.lever.co/figma/05b19d2b-5e72-4b2e-a579-2de30f0f4a7c",
-                listOf("C++", "Rust", "Systems Design", "Git", "WebGL"), 90),
+                listOf("C++", "Rust", "Systems Design", "Git", "WebGL"), 90, "San Francisco, CA", "Hybrid"),
             RawSeed("OpenAI", "Software Engineer - Infrastructure Platform", "https://jobs.ashbyhq.com/openai/915e6106-921d-44a3-832f-7634f19bcae7",
-                listOf("Python", "Kubernetes", "AI Agents", "Docker", "Linux"), 97),
+                listOf("Python", "Kubernetes", "AI Agents", "Docker", "Linux"), 97, "San Francisco, CA", "Local"),
             RawSeed("CLEAR", "Software Development Engineer III", "https://www.linkedin.com/jobs/view/4471641260",
-                listOf("Java", "Microservices", "AWS", "Security", "REST APIs"), 89),
+                listOf("Java", "Microservices", "AWS", "Security", "REST APIs"), 89, "New York, NY", "Local"),
             RawSeed("Anthropic", "Backend Systems Engineer - Model Serving", "https://jobs.ashbyhq.com/anthropic/23c6f6e8-ea8c-4a37-b676-47b2c0bc0d09",
-                listOf("Python", "Rust", "LLM Integration", "Kafka", "Linux"), 96),
+                listOf("Python", "Rust", "LLM Integration", "Kafka", "Linux"), 96, "San Francisco, CA", "Hybrid"),
             RawSeed("Northrop Grumman", "Java Software Engineer (Level 2 or 3)", "https://www.linkedin.com/jobs/view/4476382792",
-                listOf("Java", "Spring Boot", "Git", "Linux", "SQL"), 88),
+                listOf("Java", "Spring Boot", "Git", "Linux", "SQL"), 88, "Melbourne, FL", "Local"),
             RawSeed("General Motors", "Senior Software Engineer – Go (Golang)", "https://www.linkedin.com/jobs/view/4419969671",
-                listOf("Golang", "Cloud", "Microservices", "Docker", "Kubernetes"), 87),
+                listOf("Golang", "Cloud", "Microservices", "Docker", "Kubernetes"), 87, "Warren, MI (Hybrid)", "Hybrid"),
         )
 
         return rawSeeds.map { seed ->
@@ -703,7 +727,9 @@ class TechRadarScraperImpl(
                 matchedSkills = if (matched.isNotEmpty()) matched else seed.targetSkills.take(3),
                 isBlocked     = false,
                 appliedAt     = null,
-                description   = generateJobDescription(seed.company, seed.title, "United States (Hybrid / Remote)", matched),
+                description   = generateJobDescription(seed.company, seed.title, seed.location, matched),
+                location      = seed.location,
+                workMode      = seed.workMode,
             )
         }
     }
@@ -764,6 +790,16 @@ class TechRadarScraperImpl(
         val atsUrl: String,
         val targetSkills: List<String>,
         val baseScore: Int,
+        val location: String = "New York, NY",
+        val workMode: String = "Hybrid",
+    )
+
+    private data class LinkedInFallbackSeed(
+        val company: String,
+        val title: String,
+        val url: String,
+        val location: String = "New York, NY",
+        val workMode: String = "Hybrid",
     )
 
     private fun String.hashToId(): String =

@@ -42,4 +42,10 @@ data class JobEntity(
 
     @ColumnInfo(name = "applied_at")
     val appliedAt : String?,
+
+    @ColumnInfo(name = "location", defaultValue = "'New York, NY'")
+    val location : String = "New York, NY",
+
+    @ColumnInfo(name = "work_mode", defaultValue = "'Hybrid'")
+    val workMode : String = "Hybrid",
 )

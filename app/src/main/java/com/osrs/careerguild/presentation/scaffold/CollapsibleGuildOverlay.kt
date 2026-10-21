@@ -284,24 +284,18 @@ private fun GuildDrawerHeader(
                     explanation = "Select any of the 4 Guild Modules to forge ATS resumes, track live tech bounties, inspect your skill matrix, or dispatch applications with automated ledger telemetry.",
                 )
             }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Surface(
+                onClick = onCollapse,
+                shape = RoundedCornerShape(6.dp),
+                color = OsrsStone,
+                border = BorderStroke(1.dp, OsrsGold),
             ) {
-                com.osrs.careerguild.presentation.auth.GoogleAuthBadge()
-                Surface(
-                    onClick = onCollapse,
-                    shape = RoundedCornerShape(6.dp),
-                    color = OsrsStone,
-                    border = BorderStroke(1.dp, OsrsGold),
-                ) {
-                    Text(
-                        text = "▼ 3D Hub",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = OsrsGold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    )
-                }
+                Text(
+                    text = "▼ 3D Hub",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = OsrsGold,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
             }
         }
 

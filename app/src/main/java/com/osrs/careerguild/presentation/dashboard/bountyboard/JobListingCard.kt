@@ -19,7 +19,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.OpenInBrowser
+import com.osrs.careerguild.core.location.JobLocationUtils
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -63,6 +65,7 @@ fun JobListingCard(
     onForgeScroll   : (JobListing) -> Unit = {},
     onQueueAutoApply: (JobListing) -> Unit = {},
     modifier        : Modifier = Modifier,
+    userZipCode     : String = "11581",
 ) {
     val tierColor = scoreTierColor(job.score)
     var isTerminalOpen by remember { mutableStateOf(false) }
@@ -131,6 +134,43 @@ fun JobListingCard(
                         text = "✓ Link Validated",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
                         color = Color(0xFF81C784),
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // --- Job Location and Distance (Directive 2) ---
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.LocationOn,
+                    contentDescription = null,
+                    tint = Color(0xFFFFD700),
+                    modifier = Modifier.size(13.dp),
+                )
+                val locationDistanceText = JobLocationUtils.formatLocationAndDistance(
+                    jobLocation = job.location,
+                    workMode = job.workMode,
+                    userZip = userZipCode,
+                )
+                Text(
+                    text = locationDistanceText,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                    color = Color(0xFFFFD700).copy(alpha = 0.9f),
+                )
+                Surface(
+                    shape = RoundedCornerShape(3.dp),
+                    color = Color(0xFF3D2B1F),
+                    border = BorderStroke(0.6.dp, Color(0xFF00E5FF)),
+                ) {
+                    Text(
+                        text = job.workMode,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp, fontWeight = FontWeight.Bold),
+                        color = Color(0xFF00E5FF),
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                     )
                 }

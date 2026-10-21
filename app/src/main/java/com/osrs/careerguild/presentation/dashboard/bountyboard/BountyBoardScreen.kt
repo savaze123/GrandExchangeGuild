@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -60,8 +61,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.osrs.careerguild.core.profile.UserProfileManager
 
 /**
  * Bounty Board screen — the full right-pane feature for [UI_SPLIT_SCAFFOLD]
@@ -82,6 +85,16 @@ fun BountyBoardScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
+
+    val profileManager = remember { UserProfileManager.getInstance(context) }
+    val userProfile by profileManager.profile.collectAsState()
+
+    LaunchedEffect(userProfile.location) {
+        val extractedZip = userProfile.location.filter { it.isDigit() }
+        if (extractedZip.isNotBlank() && uiState.zipCode.isBlank()) {
+            viewModel.applyZipCode(extractedZip)
+        }
+    }
 
     // Show block confirmation in Snackbar
     LaunchedEffect(uiState.blockedCompany) {
@@ -140,36 +153,33 @@ fun BountyBoardScreen(
                             )
                         }
                     }
-                    Column {
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
                         Text(
                             text  = "📋 Bounty Board",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = Color(0xFFFFD700),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             text  = "Live Tech Radar (${uiState.jobs.size} verified quests)",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color(0xFF9E8A6A),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                IconButton(
+                    onClick  = { viewModel.refresh() },
+                    enabled  = !uiState.isScraping && !uiState.isScoring,
                 ) {
-                    com.osrs.careerguild.presentation.auth.GoogleAuthBadge()
-
-                    IconButton(
-                        onClick  = { viewModel.refresh() },
-                        enabled  = !uiState.isScraping && !uiState.isScoring,
-                    ) {
-                        Icon(
-                            imageVector        = Icons.Default.Refresh,
-                            contentDescription = "Refresh job listings",
-                            tint               = Color(0xFFFFD700),
-                        )
-                    }
+                    Icon(
+                        imageVector        = Icons.Default.Refresh,
+                        contentDescription = "Refresh job listings",
+                        tint               = Color(0xFFFFD700),
+                    )
                 }
             }
         }
@@ -274,6 +284,7 @@ fun BountyBoardScreen(
                                 },
                                 onForgeScroll    = onForgeScroll,
                                 onQueueAutoApply = onQueueAutoApply,
+                                userZipCode      = uiState.zipCode.ifBlank { "11581" },
                             )
                         }
 
@@ -356,6 +367,8 @@ private fun SearchParametersSection(
     viewModel: BountyBoardViewModel,
 ) {
     var isExpanded by remember { mutableStateOf(false) }
+    var zipInput by remember(uiState.zipCode) { mutableStateOf(uiState.zipCode) }
+    val keyboard = LocalSoftwareKeyboardController.current
 
     Surface(
         shape = RoundedCornerShape(8.dp),
@@ -376,6 +389,7 @@ private fun SearchParametersSection(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f, fill = false),
                 ) {
                     Icon(
                         imageVector = Icons.Default.LocationOn,
@@ -388,6 +402,8 @@ private fun SearchParametersSection(
                         text = "$zipDisplay · Radius: ${uiState.searchRadius} · Mode: ${uiState.workMode}",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                         color = Color(0xFFFFD700),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 Surface(
@@ -396,7 +412,7 @@ private fun SearchParametersSection(
                     border = BorderStroke(1.dp, Color(0xFF4CAF50)),
                 ) {
                     Text(
-                        text = "✓ Link Validated",
+                        text = "✓ Live Filtered",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
                         color = Color(0xFF81C784),
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -409,15 +425,39 @@ private fun SearchParametersSection(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     OutlinedTextField(
-                        value = uiState.zipCode,
-                        onValueChange = viewModel::updateZipCode,
+                        value = zipInput,
+                        onValueChange = { zipInput = it },
                         label = { Text("Zip Code", fontSize = 10.sp) },
+                        placeholder = { Text("11581", fontSize = 10.sp) },
                         singleLine = true,
-                        modifier = Modifier.width(110.dp),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = {
+                            keyboard?.hide()
+                            viewModel.applyZipCode(zipInput)
+                        }),
+                        modifier = Modifier.width(105.dp),
                     )
+                    Button(
+                        onClick = {
+                            keyboard?.hide()
+                            viewModel.applyZipCode(zipInput)
+                        },
+                        shape = RoundedCornerShape(4.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFD700)),
+                    ) {
+                        Text(
+                            text = "Apply",
+                            color = Color.Black,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Search Radius:",
@@ -467,7 +507,7 @@ private fun SearchParametersSection(
                                 text = mode,
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                 color = if (selected) Color.Black else Color.White,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                             )
                         }
                     }

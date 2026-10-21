@@ -28,7 +28,7 @@ data class PdfForgeResult(
  *      zero text overlapping, zero squishing, and zero 2nd page spillover.
  * 2. Strict Anti-Fabrication & Entity Classification:
  *    - Legitimate Employers: "Tyche Technologies", "Marjan NYC Inc."
- *    - Legitimate Projects: "Grand Exchange Guild", "Relational Database Storage Engine", "Discord Bot Assistant".
+ *    - Legitimate Projects: "Grand Exchange Guild", "European Car Manufacturer Data Modeling", "Python Discord Bot".
  *    - ABSOLUTELY ZERO fabricated employers or projects ("Apex Automation Labs" purged).
  *    - ABSOLUTELY ZERO fabricated academic honors ("Dean's List" purged).
  * 3. Dynamic Profile Integration:
@@ -228,16 +228,16 @@ object ResumeForgePdfGenerator {
         }
         y += 5.0f
 
-        // Project 2: Relational Database Storage Engine (Factual GitHub project replacing any hallucinations)
-        canvas.drawText("Relational Database Storage Engine  |  High-Performance Systems Architecture", leftMargin, y, boldBodyPaint)
+        // Project 2: European Car Manufacturer Data Modeling (Strictly Factual from Master Resume)
+        canvas.drawText("European Car Manufacturer Data Modeling  |  Relational Database Architecture", leftMargin, y, boldBodyPaint)
         y += 10f
-        canvas.drawText("C++, POSIX File I/O, B+ Tree Indexing, LRU Buffer Pool, WAL Journaling", leftMargin, y, subtitlePaint)
+        canvas.drawText("ERwin, SQL, DBeaver, Docker, PostgreSQL, SQL Server, MySQL", leftMargin, y, subtitlePaint)
         y += 9f
-        val rdbBullets = listOf(
-            "Engineered a disk-backed relational database storage engine in C++ featuring B+ Tree indexing, LRU buffer pool paging, and atomic WAL journaling.",
-            "Implemented transactional ACID-compliant page serialization ensuring zero data corruption across abrupt process terminations."
+        val carBullets = listOf(
+            "Collaborated to design a robust relational database schema and subject-area diagrams enforcing domain-based constraints and consistent naming conventions.",
+            "Built audit table triggers and implemented temporal versioning across PostgreSQL, SQL Server, and MySQL, with reusable views and table-valued functions."
         )
-        for (b in rdbBullets) {
+        for (b in carBullets) {
             y = drawWrappedText(canvas, "•  $b", leftMargin + 6f, y, contentWidth - 6f, bodyPaint, lineHeight = 12.0f)
             y += 2.5f
         }

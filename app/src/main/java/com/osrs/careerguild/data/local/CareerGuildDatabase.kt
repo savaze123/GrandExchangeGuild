@@ -31,7 +31,7 @@ import com.osrs.careerguild.data.local.entity.SkillEntity
         JobEntity::class,
         BlockedCompanyEntity::class,
     ],
-    version      = 1,
+    version      = 2,
     exportSchema = true,
 )
 abstract class CareerGuildDatabase : RoomDatabase() {

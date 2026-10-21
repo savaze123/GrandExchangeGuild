@@ -59,7 +59,16 @@ object DatabaseModule {
             "career_guild.db",
         )
             .openHelperFactory(factory)
+            .addMigrations(MIGRATION_1_2)
+            .fallbackToDestructiveMigration()
             .build()
+    }
+
+    private val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE jobs ADD COLUMN location TEXT NOT NULL DEFAULT 'New York, NY'")
+            database.execSQL("ALTER TABLE jobs ADD COLUMN work_mode TEXT NOT NULL DEFAULT 'Hybrid'")
+        }
     }
 
     // ---------------------------------------------------------------------------

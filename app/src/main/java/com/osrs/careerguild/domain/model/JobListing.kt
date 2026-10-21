@@ -28,4 +28,6 @@ data class JobListing(
     val isBlocked     : Boolean        = false,
     val appliedAt     : String?        = null,
     val description   : String         = "",
+    val location      : String         = "New York, NY",
+    val workMode      : String         = "Hybrid",
 )

@@ -61,6 +61,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -69,6 +70,7 @@ import com.osrs.careerguild.core.pdf.ResumeForgePdfGenerator
 import com.osrs.careerguild.core.profile.UserProfile
 import com.osrs.careerguild.core.profile.UserProfileManager
 import com.osrs.careerguild.domain.model.JobListing
+import com.osrs.careerguild.presentation.common.InfoTooltipTrigger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -204,7 +206,12 @@ fun CourierGuildScreen(
             delay(800)
             log("✅ Verification pass complete! Form submitted successfully. Packet In-Transit.")
 
-            app.status = ApplicationStatus.IN_TRANSIT
+            val idx = applications.indexOfFirst { it.id == app.id }
+            if (idx != -1) {
+                applications[idx] = app.copy(status = ApplicationStatus.IN_TRANSIT)
+            } else {
+                app.status = ApplicationStatus.IN_TRANSIT
+            }
             activeDispatchId = null
         }
     }
@@ -233,6 +240,7 @@ fun CourierGuildScreen(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.weight(1f),
                 ) {
                     if (isSinglePane) {
@@ -251,20 +259,23 @@ fun CourierGuildScreen(
                             )
                         }
                     }
-                    Column {
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
                         Text(
                             text  = "📬 Courier Guild",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = OsrsGold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             text  = "Auto-Apply Queue, Link Validator & Application Ledger",
                             style = MaterialTheme.typography.labelSmall,
                             color = OsrsTextDim,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
-                com.osrs.careerguild.presentation.auth.GoogleAuthBadge()
             }
         }
 
@@ -325,6 +336,14 @@ fun CourierGuildScreen(
                     isDispatching = activeDispatchId == app.id,
                     onDispatch = { runDispatch(app) },
                     onViewPdf = { viewingAppForPdf = app },
+                    onAdvanceStatus = { newStatus ->
+                        val idx = applications.indexOfFirst { it.id == app.id }
+                        if (idx != -1) {
+                            applications[idx] = applications[idx].copy(status = newStatus)
+                        } else {
+                            app.status = newStatus
+                        }
+                    },
                 )
             }
 
@@ -408,15 +427,16 @@ private fun CourierLocationParamsBar(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     OutlinedTextField(
                         value = zipCode,
                         onValueChange = onZipCodeChange,
                         label = { Text("Zip Code", fontSize = 10.sp) },
                         singleLine = true,
-                        modifier = Modifier.width(110.dp),
+                        modifier = Modifier.width(105.dp),
                     )
+                    Spacer(modifier = Modifier.width(2.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Search Radius:",
@@ -443,6 +463,34 @@ private fun CourierLocationParamsBar(
                         }
                     }
                 }
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        text = "Work Mode:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = OsrsTextDim,
+                    )
+                    listOf("All", "Local", "Hybrid", "Remote").forEach { mode ->
+                        val selected = workMode == mode
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = if (selected) Color(0xFF00E5FF) else OsrsStone,
+                            border = BorderStroke(1.dp, if (selected) Color(0xFF00E5FF) else OsrsDarkBorder),
+                            modifier = Modifier.clickable { onWorkModeChange(mode) },
+                        ) {
+                            Text(
+                                text = mode,
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = if (selected) Color.Black else Color.White,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -455,14 +503,34 @@ private fun LedgerCountersRow(
     submittedCount: Int,
     interviewingCount: Int,
 ) {
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        CounterTile("Queued", queuedCount, Color(0xFFFFD700), Modifier.weight(1f))
-        CounterTile("In-Transit", inTransitCount, Color(0xFF00E5FF), Modifier.weight(1f))
-        CounterTile("Submitted", submittedCount, Color(0xFF4CAF50), Modifier.weight(1f))
-        CounterTile("Interviewing", interviewingCount, Color(0xFFBA68C8), Modifier.weight(1f))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "APPLICATION PIPELINE",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp),
+                color = OsrsGold,
+            )
+            InfoTooltipTrigger(
+                title = "Application Status Pipeline",
+                explanation = "• Queued: Ready for autofill & direct requisition dispatch.\n• In-Transit: Packet transmitted to ATS portal; awaiting confirmation.\n• Submitted: Application confirmed by organization via Google SSO sync or manual check.\n• Interviewing: Screening round or interview scheduled.",
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            CounterTile("Queued", queuedCount, Color(0xFFFFD700), Modifier.weight(1f))
+            CounterTile("In-Transit", inTransitCount, Color(0xFF00E5FF), Modifier.weight(1f))
+            CounterTile("Submitted", submittedCount, Color(0xFF4CAF50), Modifier.weight(1f))
+            CounterTile("Interviewing", interviewingCount, Color(0xFFBA68C8), Modifier.weight(1f))
+        }
     }
 }
 
@@ -490,9 +558,10 @@ private fun CounterTile(
             )
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                 color = Color.White.copy(alpha = 0.85f),
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -533,6 +602,7 @@ private fun ApplicationQueueCard(
     isDispatching: Boolean,
     onDispatch: () -> Unit,
     onViewPdf: () -> Unit,
+    onAdvanceStatus: (ApplicationStatus) -> Unit = {},
 ) {
     Card(
         shape = RoundedCornerShape(8.dp),
@@ -648,36 +718,100 @@ private fun ApplicationQueueCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Action: Dispatch / Execute Autofill
+            // Action: Dispatch / Status Progression
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (app.status == ApplicationStatus.QUEUED || app.status == ApplicationStatus.IN_TRANSIT) {
-                    Button(
-                        onClick = onDispatch,
-                        enabled = !isDispatching,
-                        shape = RoundedCornerShape(6.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = OsrsGold),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    ) {
-                        if (isDispatching) {
-                            CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.Black)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Dispatching...", color = Color.Black, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
-                        } else {
-                            Icon(Icons.Default.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Execute Autofill / Dispatch", color = Color.Black, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                when (app.status) {
+                    ApplicationStatus.QUEUED -> {
+                        Button(
+                            onClick = onDispatch,
+                            enabled = !isDispatching,
+                            shape = RoundedCornerShape(6.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = OsrsGold),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        ) {
+                            if (isDispatching) {
+                                CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.Black)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Dispatching...", color = Color.Black, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                            } else {
+                                Icon(Icons.Default.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Execute Autofill / Dispatch", color = Color.Black, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                            }
                         }
                     }
-                } else {
-                    Text(
-                        text = "✓ Dispatched & Verified",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color(0xFF4CAF50),
-                    )
+                    ApplicationStatus.IN_TRANSIT -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF0F3038),
+                                border = BorderStroke(1.dp, Color(0xFF00E5FF)),
+                            ) {
+                                Text(
+                                    text = "✈ In-Transit (Dispatched)",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = Color(0xFF00E5FF),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = { onAdvanceStatus(ApplicationStatus.SUBMITTED) },
+                                shape = RoundedCornerShape(4.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                border = BorderStroke(1.dp, Color(0xFF4CAF50)),
+                            ) {
+                                Text("Mark Submitted", color = Color(0xFF81C784), style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                    ApplicationStatus.SUBMITTED -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF1B3B22),
+                                border = BorderStroke(1.dp, Color(0xFF4CAF50)),
+                            ) {
+                                Text(
+                                    text = "✓ Submitted & Logged",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = Color(0xFF81C784),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = { onAdvanceStatus(ApplicationStatus.INTERVIEWING) },
+                                shape = RoundedCornerShape(4.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                border = BorderStroke(1.dp, Color(0xFFBA68C8)),
+                            ) {
+                                Text("Mark Interviewing", color = Color(0xFFCE93D8), style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                    ApplicationStatus.INTERVIEWING -> {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFF321A3B),
+                            border = BorderStroke(1.dp, Color(0xFFBA68C8)),
+                        ) {
+                            Text(
+                                text = "🎉 Interviewing Scheduled",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFFCE93D8),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -811,7 +945,7 @@ private fun CourierPdfViewerDialog(
                     )
                     Text(
                         text = "• Grand Exchange Guild (120Hz Filament 3D Android Spatial Platform)\n" +
-                               "• Relational Database Storage Engine (High-Performance Systems Architecture)",
+                               "• European Car Manufacturer Data Modeling (Relational Database Architecture, SQL, ERwin)",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
                         color = Color(0xFF222222),
                     )

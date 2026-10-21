@@ -62,7 +62,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 // ---------------------------------------------------------------------------
 // OSRS palette constants
@@ -168,18 +170,22 @@ fun SkillAltarScreen(
                                 )
                             }
                         }
-                        Column {
+                        Column(modifier = Modifier.weight(1f, fill = false)) {
                             Text(
                                 text  = "⚗ Skill Altar",
                                 style = MaterialTheme.typography.titleMedium
                                     .copy(fontWeight = FontWeight.Bold),
                                 color = OsrsGold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                             if (!uiState.isLoading) {
                                 Text(
                                     text  = "${uiState.activeCount} active · ${uiState.totalCount} total",
                                     style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                                     color = OsrsGold.copy(alpha = 0.7f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
@@ -202,17 +208,22 @@ fun SkillAltarScreen(
                 enter   = expandVertically(),
                 exit    = shrinkVertically(),
             ) {
+                val baseCategories = listOf("AI & Agents", "Automation & Web", "Backend & Data")
+                val availableCategories = (baseCategories + uiState.customCategories + listOf("Custom")).distinct()
                 AddSkillPanel(
-                    name                = uiState.addSkillName,
-                    category            = uiState.addSkillCategory,
-                    availableCategories = listOf("AI & Agents", "Backend & Data", "Automation & Web", "Custom"),
-                    onNameChange        = viewModel::updateAddSkillName,
-                    onCategoryChange    = viewModel::updateAddSkillCategory,
-                    onAdd               = {
+                    name                       = uiState.addSkillName,
+                    category                   = uiState.addSkillCategory,
+                    customCategoryName         = uiState.customCategoryName,
+                    availableCategories        = availableCategories,
+                    onNameChange               = viewModel::updateAddSkillName,
+                    onCategoryChange           = viewModel::updateAddSkillCategory,
+                    onCustomCategoryNameChange = viewModel::updateCustomCategoryName,
+                    onAddCustomCategory        = viewModel::addCustomCategory,
+                    onAdd                      = {
                         keyboard?.hide()
                         viewModel.addSkill()
                     },
-                    modifier            = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    modifier                   = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                 )
             }
 
@@ -281,13 +292,16 @@ fun SkillAltarScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddSkillPanel(
-    name                : String,
-    category            : String,
-    availableCategories : List<String>,
-    onNameChange        : (String) -> Unit,
-    onCategoryChange    : (String) -> Unit,
-    onAdd               : () -> Unit,
-    modifier            : Modifier = Modifier,
+    name                       : String,
+    category                   : String,
+    customCategoryName         : String,
+    availableCategories        : List<String>,
+    onNameChange               : (String) -> Unit,
+    onCategoryChange           : (String) -> Unit,
+    onCustomCategoryNameChange : (String) -> Unit,
+    onAddCustomCategory        : (String) -> Unit,
+    onAdd                      : () -> Unit,
+    modifier                   : Modifier = Modifier,
 ) {
     Surface(
         modifier       = modifier.fillMaxWidth(),
@@ -355,6 +369,56 @@ private fun AddSkillPanel(
                                 onCategoryChange(cat)
                                 expanded = false
                             },
+                        )
+                    }
+                }
+            }
+
+            // Custom Category Input Field & Button (Directive 4)
+            if (category.equals("Custom", ignoreCase = true)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedTextField(
+                        value = customCategoryName,
+                        onValueChange = onCustomCategoryNameChange,
+                        label = { Text("Custom Category Name", color = OsrsTextDim, fontSize = 10.sp) },
+                        placeholder = { Text("e.g. Mobile, DevOps, Cloud…", color = OsrsTextDim) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = {
+                            if (customCategoryName.isNotBlank()) {
+                                onAddCustomCategory(customCategoryName)
+                            }
+                        }),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = OsrsGold,
+                            unfocusedBorderColor = OsrsDarkBorder,
+                            focusedTextColor = OsrsGold,
+                            unfocusedTextColor = OsrsTextDim,
+                            cursorColor = OsrsGold,
+                        ),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(
+                        onClick = {
+                            if (customCategoryName.isNotBlank()) {
+                                onAddCustomCategory(customCategoryName)
+                            }
+                        },
+                        enabled = customCategoryName.isNotBlank(),
+                        shape = RoundedCornerShape(6.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = OsrsGold,
+                            contentColor = Color.Black,
+                        ),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = "Add Category",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                         )
                     }
                 }

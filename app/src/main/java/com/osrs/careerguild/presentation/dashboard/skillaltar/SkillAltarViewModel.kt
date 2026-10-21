@@ -64,10 +64,15 @@ class SkillAltarViewModel(
                         return@collectLatest
                     }
 
+                    val defaultTabs = listOf("AI & Agents", "Automation & Web", "Backend & Data")
                     _uiState.update { state ->
+                        val combinedCategories = (defaultTabs + state.customCategories + skills.map { it.category })
+                            .distinct()
+                            .filter { it != "Custom" || skills.any { s -> s.category == "Custom" } }
+                            .sorted()
                         state.copy(
                             skills     = skills.sortedWith(compareBy({ it.category }, { it.name })),
-                            categories = categories,
+                            categories = combinedCategories,
                             isLoading  = false,
                         )
                     }
@@ -80,14 +85,38 @@ class SkillAltarViewModel(
     // ---------------------------------------------------------------------------
 
     fun addSkill() {
-        val name     = _uiState.value.addSkillName.trim()
-        val category = _uiState.value.addSkillCategory
+        val name        = _uiState.value.addSkillName.trim()
+        val rawCategory = _uiState.value.addSkillCategory
+        val customName  = _uiState.value.customCategoryName.trim()
+
+        val category = if (rawCategory.equals("Custom", ignoreCase = true) && customName.isNotBlank()) {
+            customName
+        } else {
+            rawCategory
+        }
+
         if (name.isBlank()) return
 
         viewModelScope.launch {
             addSkill(name, category)
                 .onSuccess {
-                    _uiState.update { it.copy(addSkillName = "", successMessage = "'$name' added to Altar.") }
+                    _uiState.update { state ->
+                        val updatedCustom = if (category != "Custom" &&
+                            !state.customCategories.contains(category) &&
+                            !listOf("AI & Agents", "Automation & Web", "Backend & Data").contains(category)) {
+                            state.customCategories + category
+                        } else {
+                            state.customCategories
+                        }
+                        state.copy(
+                            addSkillName       = "",
+                            customCategoryName = "",
+                            addSkillCategory   = category,
+                            customCategories   = updatedCustom,
+                            categories         = (state.categories + updatedCustom).distinct().sorted(),
+                            successMessage     = "'$name' added to Altar under '$category'."
+                        )
+                    }
                 }
                 .onFailure { e ->
                     _uiState.update { it.copy(error = e.message ?: "Failed to add skill.") }
@@ -120,9 +149,26 @@ class SkillAltarViewModel(
     // Form state
     // ---------------------------------------------------------------------------
 
-    fun updateAddSkillName(name: String)         { _uiState.update { it.copy(addSkillName = name) } }
-    fun updateAddSkillCategory(category: String) { _uiState.update { it.copy(addSkillCategory = category) } }
-    fun toggleAddSkillPanel()                    { _uiState.update { it.copy(isAddSkillExpanded = !it.isAddSkillExpanded) } }
+    fun updateAddSkillName(name: String)               { _uiState.update { it.copy(addSkillName = name) } }
+    fun updateAddSkillCategory(category: String)       { _uiState.update { it.copy(addSkillCategory = category) } }
+    fun updateCustomCategoryName(name: String)         { _uiState.update { it.copy(customCategoryName = name) } }
+    fun toggleAddSkillPanel()                          { _uiState.update { it.copy(isAddSkillExpanded = !it.isAddSkillExpanded) } }
+
+    fun addCustomCategory(category: String) {
+        val trimmed = category.trim()
+        if (trimmed.isBlank()) return
+        _uiState.update { state ->
+            val updated = if (!state.customCategories.contains(trimmed)) state.customCategories + trimmed else state.customCategories
+            val allCats = (state.categories + updated).distinct().sorted()
+            state.copy(
+                customCategories   = updated,
+                categories         = allCats,
+                addSkillCategory   = trimmed,
+                customCategoryName = "",
+                successMessage     = "Category '$trimmed' added to filter tabs.",
+            )
+        }
+    }
 
     // ---------------------------------------------------------------------------
     // Category filter

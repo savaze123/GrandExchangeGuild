@@ -105,6 +105,8 @@ private fun JobEntity.toDomain(): JobListing {
         isBlocked     = isBlocked,
         appliedAt     = appliedAt,
         description   = desc,
+        location      = location,
+        workMode      = workMode,
     )
 }
 
@@ -118,4 +120,6 @@ private fun JobListing.toEntity(): JobEntity = JobEntity(
     matchedSkills = matchedSkills.joinToString("|"),
     isBlocked     = isBlocked,
     appliedAt     = appliedAt,
+    location      = location,
+    workMode      = workMode,
 )
