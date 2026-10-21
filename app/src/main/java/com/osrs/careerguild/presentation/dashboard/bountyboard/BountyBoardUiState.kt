@@ -48,6 +48,9 @@ data class BountyBoardUiState(
      */
     val activeSkills   : List<Skill>        = emptyList(),
 
+    /** Set of active skill names in lowercase for fast highlighting. */
+    val activeSkillNames: Set<String>       = emptySet(),
+
     /**
      * False when TokenGovernor detects the $10/month Gemini budget is exhausted.
      * UI can surface a "Keyword-only mode" badge when false.

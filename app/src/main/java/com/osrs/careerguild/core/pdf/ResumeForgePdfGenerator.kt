@@ -194,54 +194,83 @@ object ResumeForgePdfGenerator {
         y += 5.0f
 
         // Employer 2: Marjan NYC Inc.
-        // Negative constraints: NO Git/version control; modular e-commerce elements provided natively by Shopify.
+        // Factual baseline: Maintaining Shopify storefront (Dawn theme), Liquid/JS customization, marketplace APIs.
+        // Negative constraints: NO Git/version control; no claims of custom-building native Shopify platform; NO "vibe coding".
         canvas.drawText("Marjan NYC Inc.  |  Technical Solutions & E-Commerce Developer", leftMargin, y, boldBodyPaint)
         y += 10f
         canvas.drawText("Jun 2022 – Dec 2023  ·  New York, NY", leftMargin, y, subtitlePaint)
         y += 9f
         val marjanBullets = listOf(
-            "Configured and maintained modular e-commerce architecture utilizing Shopify native components and platform APIs, enhancing multi-channel order orchestration.",
-            "Streamlined inventory synchronization and customer transaction pipelines connecting store endpoints to internal relational databases, eliminating sync discrepancies."
+            "Maintained and updated responsive Shopify storefront (Dawn theme) utilizing custom Liquid and JavaScript modifications to support marketing and merchandising requirements.",
+            "Configured marketplace API integrations and catalog synchronization across third-party sales channels (Amazon, eBay, TikTok), streamlining order fulfillment and data consistency."
         )
         for (b in marjanBullets) {
-            y = drawWrappedText(canvas, "•  $b", leftMargin + 6f, y, contentWidth - 6f, bodyPaint, lineHeight = 12.0f)
-            y += 2.5f
+            y = drawWrappedText(canvas, "•  $b", leftMargin + 6f, y, contentWidth - 6f, bodyPaint, lineHeight = 11.5f)
+            y += 2.0f
         }
-        y += 6.0f
+        y += 5.0f
 
-        // --- 5. TECHNICAL PROJECTS (Strictly Factual Projects Derived from Master Resume & GitHub) ---
+        // --- 5. TECHNICAL PROJECTS (Strictly Factual Projects from Baseline Master Resume & Verified Sources) ---
         canvas.drawText("TECHNICAL PROJECTS", leftMargin, y, sectionPaint)
-        y += 11f
+        y += 10f
 
         // Project 1: Grand Exchange Guild
         canvas.drawText("Grand Exchange Guild  |  Android & Spatial 3D Platform", leftMargin, y, boldBodyPaint)
-        y += 10f
-        canvas.drawText("Kotlin, Jetpack Compose, Google Filament 3D, SQLite/SQLCipher, Coroutines", leftMargin, y, subtitlePaint)
         y += 9f
+        canvas.drawText("Kotlin, Jetpack Compose, Google Filament 3D, SQLite/SQLCipher, Coroutines", leftMargin, y, subtitlePaint)
+        y += 8f
         val gegBullets = listOf(
             "Architected 120Hz Filament 3D rendering pipeline and reactive Compose scaffold supporting foldable postures (Tensor G5, 16KB ELF alignment).",
             "Built token-governed budget guardrails with monthly spending ceilings and offline fallback caching, ensuring 100% operational uptime."
         )
         for (b in gegBullets) {
-            y = drawWrappedText(canvas, "•  $b", leftMargin + 6f, y, contentWidth - 6f, bodyPaint, lineHeight = 12.0f)
-            y += 2.5f
+            y = drawWrappedText(canvas, "•  $b", leftMargin + 6f, y, contentWidth - 6f, bodyPaint, lineHeight = 11.5f)
+            y += 2.0f
         }
-        y += 5.0f
+        y += 4.0f
 
-        // Project 2: European Car Manufacturer Data Modeling (Strictly Factual from Master Resume)
+        // Project 2: European Car Manufacturer Data Modeling (Factual Master Resume)
         canvas.drawText("European Car Manufacturer Data Modeling  |  Relational Database Architecture", leftMargin, y, boldBodyPaint)
-        y += 10f
-        canvas.drawText("ERwin, SQL, DBeaver, Docker, PostgreSQL, SQL Server, MySQL", leftMargin, y, subtitlePaint)
         y += 9f
+        canvas.drawText("ERwin, SQL, DBeaver, Docker, PostgreSQL, SQL Server, MySQL", leftMargin, y, subtitlePaint)
+        y += 8f
         val carBullets = listOf(
-            "Collaborated to design a robust relational database schema and subject-area diagrams enforcing domain-based constraints and consistent naming conventions.",
-            "Built audit table triggers and implemented temporal versioning across PostgreSQL, SQL Server, and MySQL, with reusable views and table-valued functions."
+            "Collaborated to design a robust relational database schema and subject-area diagrams enforcing domain constraints and naming conventions.",
+            "Built audit table triggers and implemented temporal versioning across PostgreSQL, SQL Server, and MySQL, with reusable views and functions."
         )
         for (b in carBullets) {
-            y = drawWrappedText(canvas, "•  $b", leftMargin + 6f, y, contentWidth - 6f, bodyPaint, lineHeight = 12.0f)
-            y += 2.5f
+            y = drawWrappedText(canvas, "•  $b", leftMargin + 6f, y, contentWidth - 6f, bodyPaint, lineHeight = 11.5f)
+            y += 2.0f
         }
-        y += 6.0f
+        y += 4.0f
+
+        // Project 3: Discord Bot (Factual Master Resume)
+        canvas.drawText("Discord Bot  |  Asynchronous Media & Community Platform", leftMargin, y, boldBodyPaint)
+        y += 9f
+        canvas.drawText("Python, discord.py, Asynchronous Programming, FFmpeg", leftMargin, y, subtitlePaint)
+        y += 8f
+        val discordBullets = listOf(
+            "Engineered an asynchronous media playback and moderation bot featuring FIFO queue media playback, error handling, and modular command handlers using discord.py."
+        )
+        for (b in discordBullets) {
+            y = drawWrappedText(canvas, "•  $b", leftMargin + 6f, y, contentWidth - 6f, bodyPaint, lineHeight = 11.5f)
+            y += 2.0f
+        }
+        y += 4.0f
+
+        // Project 4: Club Website (Factual Master Resume)
+        canvas.drawText("Club Website (wcmaa.com)  |  Responsive Web Architecture", leftMargin, y, boldBodyPaint)
+        y += 9f
+        canvas.drawText("HTML5, CSS3, JavaScript", leftMargin, y, subtitlePaint)
+        y += 8f
+        val websiteBullets = listOf(
+            "Designed and launched responsive website (wcmaa.com) with cross-browser compatibility, driving a 20% boost in unique viewership and a 10% increase in digital engagement."
+        )
+        for (b in websiteBullets) {
+            y = drawWrappedText(canvas, "•  $b", leftMargin + 6f, y, contentWidth - 6f, bodyPaint, lineHeight = 11.5f)
+            y += 2.0f
+        }
+        y += 5.0f
 
         // --- 6. EDUCATION & CERTIFICATIONS (Strictly Factual: BA in CS & IBM Cert, Zero Fabricated Honors) ---
         canvas.drawText("EDUCATION & CERTIFICATIONS", leftMargin, y, sectionPaint)

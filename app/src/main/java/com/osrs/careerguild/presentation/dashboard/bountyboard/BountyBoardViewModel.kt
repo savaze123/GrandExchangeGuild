@@ -65,8 +65,37 @@ class BountyBoardViewModel(
     }
 
     // ---------------------------------------------------------------------------
-    // Filtering logic combining search query, active skills, and broad CS match
     // ---------------------------------------------------------------------------
+    // Filtering & dynamic skill scoring logic
+    // ---------------------------------------------------------------------------
+
+    private fun enrichJobWithActiveSkills(job: JobListing, activeSkills: List<Skill>): JobListing {
+        val active = activeSkills.filter { it.isActive }
+        if (active.isEmpty()) return job
+
+        val searchableText = "${job.title} ${job.company} ${job.description} ${job.matchedSkills.joinToString(" ")}".lowercase()
+        val matchingActive = active.filter { skill ->
+            val sName = skill.name.lowercase()
+            searchableText.contains(sName) ||
+            (sName.contains("ai") && searchableText.contains("ai")) ||
+            (sName.contains("python") && searchableText.contains("python")) ||
+            (sName.contains("sql") && searchableText.contains("sql")) ||
+            (sName.contains("docker") && searchableText.contains("docker"))
+        }
+
+        val dynamicMatchedSkills = (matchingActive.map { it.name } + job.matchedSkills).distinct()
+        // Base match score: start from 58, award +8 for every matched user active skill, capped at 99
+        val dynamicScore = if (matchingActive.isNotEmpty()) {
+            (58 + (matchingActive.size * 8)).coerceIn(60, 99)
+        } else {
+            job.score.coerceIn(40, 75)
+        }
+
+        return job.copy(
+            score = dynamicScore,
+            matchedSkills = dynamicMatchedSkills,
+        )
+    }
 
     private fun filterJobs(
         jobs: List<JobListing>,
@@ -79,44 +108,47 @@ class BountyBoardViewModel(
         val q = query.trim()
         val activeSkillNames = activeSkills.filter { it.isActive }.map { it.name.lowercase() }
 
-        return jobs.filter { j ->
-            // Text search: matches title, company, or any matched skill tag
-            val matchesQuery = q.isBlank() ||
-                j.title.contains(q, ignoreCase = true) ||
-                j.company.contains(q, ignoreCase = true) ||
-                j.matchedSkills.any { it.contains(q, ignoreCase = true) }
+        return jobs
+            .map { enrichJobWithActiveSkills(it, activeSkills) }
+            .filter { j ->
+                // Text search: matches title, company, or any matched skill tag
+                val matchesQuery = q.isBlank() ||
+                    j.title.contains(q, ignoreCase = true) ||
+                    j.company.contains(q, ignoreCase = true) ||
+                    j.matchedSkills.any { it.contains(q, ignoreCase = true) }
 
-            // Active skill filter — show job if it matches any active skill or broad CS skills, or if no active skills
-            val matchesSkill = activeSkillNames.isEmpty() ||
-                j.matchedSkills.isEmpty() ||
-                j.matchedSkills.any { ms ->
-                    ms.contains("Software", ignoreCase = true) ||
-                    ms.contains("Engineering", ignoreCase = true) ||
-                    ms.contains("Systems", ignoreCase = true) ||
-                    ms.contains("Algorithms", ignoreCase = true) ||
-                    activeSkillNames.any { s -> ms.lowercase().contains(s) || s.contains(ms.lowercase()) }
-                } ||
-                activeSkillNames.any { s ->
-                    j.title.lowercase().contains(s) || j.company.lowercase().contains(s)
-                }
+                // Active skill filter — show job if it matches any active skill or broad CS skills, or if no active skills
+                val matchesSkill = activeSkillNames.isEmpty() ||
+                    j.matchedSkills.isEmpty() ||
+                    j.matchedSkills.any { ms ->
+                        ms.contains("Software", ignoreCase = true) ||
+                        ms.contains("Engineering", ignoreCase = true) ||
+                        ms.contains("Systems", ignoreCase = true) ||
+                        ms.contains("Algorithms", ignoreCase = true) ||
+                        activeSkillNames.any { s -> ms.lowercase().contains(s) || s.contains(ms.lowercase()) }
+                    } ||
+                    activeSkillNames.any { s ->
+                        j.title.lowercase().contains(s) || j.company.lowercase().contains(s)
+                    }
 
-            // Geographic radius filter
-            val matchesRadius = JobLocationUtils.matchesRadius(
-                jobLocation = j.location,
-                workMode = j.workMode,
-                userZip = zipCode.ifBlank { "11581" },
-                searchRadius = radius,
-            )
+                // Geographic radius filter
+                val matchesRadius = JobLocationUtils.matchesRadius(
+                    jobLocation = j.location,
+                    workMode = j.workMode,
+                    userZip = zipCode.ifBlank { "11581" },
+                    searchRadius = radius,
+                )
 
-            // Work mode filter (All, Local, Hybrid, Remote)
-            val matchesWorkMode = JobLocationUtils.matchesWorkMode(
-                jobWorkMode = j.workMode,
-                jobLocation = j.location,
-                filterMode = workMode,
-            )
+                // Work mode filter (All, Local, Hybrid, Remote)
+                val matchesWorkMode = JobLocationUtils.matchesWorkMode(
+                    jobWorkMode = j.workMode,
+                    jobLocation = j.location,
+                    filterMode = workMode,
+                )
 
-            matchesQuery && matchesSkill && matchesRadius && matchesWorkMode
-        }
+                matchesQuery && matchesSkill && matchesRadius && matchesWorkMode
+            }
+            .sortedByDescending { it.score }
     }
 
     // ---------------------------------------------------------------------------
@@ -150,9 +182,11 @@ class BountyBoardViewModel(
             skillRepository.observeActive()
                 .catch { /* non-fatal: scraper uses cached skills */ }
                 .collectLatest { skills ->
+                    val activeNames = skills.filter { it.isActive }.map { it.name.lowercase() }.toSet()
                     _uiState.update { state ->
                         state.copy(
                             activeSkills = skills,
+                            activeSkillNames = activeNames,
                             jobs = filterJobs(cachedAllJobs, state.searchQuery, skills, state.zipCode, state.searchRadius, state.workMode),
                         )
                     }

@@ -184,28 +184,6 @@ fun BountyBoardScreen(
             }
         }
 
-        // --- Search bar ---
-        OutlinedTextField(
-            value         = uiState.searchQuery,
-            onValueChange = viewModel::search,
-            placeholder   = { Text("Search jobs or companies…") },
-            leadingIcon   = {
-                Icon(Icons.Default.Search, contentDescription = null)
-            },
-            singleLine     = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-            modifier       = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-        )
-
-        // --- Search Parameters: Zip code & radius controls (Section 3) ---
-        SearchParametersSection(
-            uiState = uiState,
-            viewModel = viewModel,
-        )
-
         // --- Scraping / Scoring progress bar ---
         AnimatedVisibility(
             visible = uiState.isScraping || uiState.isScoring,
@@ -236,7 +214,7 @@ fun BountyBoardScreen(
             }
         }
 
-        // --- Job list ---
+        // --- Main content area (Scroll-friendly to maximize vertical space for quest cards) ---
         Box(modifier = Modifier.weight(1f)) {
             when {
                 uiState.isLoading -> {
@@ -247,7 +225,31 @@ fun BountyBoardScreen(
                 }
 
                 uiState.jobs.isEmpty() && !uiState.isScraping -> {
-                    EmptyBountyBoard(onRefresh = viewModel::refresh)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 12.dp),
+                    ) {
+                        OutlinedTextField(
+                            value         = uiState.searchQuery,
+                            onValueChange = viewModel::search,
+                            placeholder   = { Text("Search jobs or companies…") },
+                            leadingIcon   = {
+                                Icon(Icons.Default.Search, contentDescription = null)
+                            },
+                            singleLine     = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+                            modifier       = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                        )
+                        SearchParametersSection(
+                            uiState   = uiState,
+                            viewModel = viewModel,
+                        )
+                        EmptyBountyBoard(onRefresh = viewModel::refresh)
+                    }
                 }
 
                 else -> {
@@ -255,7 +257,33 @@ fun BountyBoardScreen(
                         contentPadding      = PaddingValues(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        // Header stats
+                        // 1. Search Bar item (scrolls off when browsing jobs)
+                        item {
+                            OutlinedTextField(
+                                value         = uiState.searchQuery,
+                                onValueChange = viewModel::search,
+                                placeholder   = { Text("Search jobs or companies…") },
+                                leadingIcon   = {
+                                    Icon(Icons.Default.Search, contentDescription = null)
+                                },
+                                singleLine     = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+                                modifier       = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp),
+                            )
+                        }
+
+                        // 2. Search Parameters: Zip code & radius controls (scrolls off)
+                        item {
+                            SearchParametersSection(
+                                uiState   = uiState,
+                                viewModel = viewModel,
+                            )
+                        }
+
+                        // 3. Header stats
                         item {
                             BountyBoardHeader(
                                 totalJobs   = uiState.jobs.size,
@@ -263,6 +291,7 @@ fun BountyBoardScreen(
                             )
                         }
 
+                        // 4. Job listing cards
                         items(
                             items = uiState.jobs,
                             key   = { it.id },
@@ -285,6 +314,7 @@ fun BountyBoardScreen(
                                 onForgeScroll    = onForgeScroll,
                                 onQueueAutoApply = onQueueAutoApply,
                                 userZipCode      = uiState.zipCode.ifBlank { "11581" },
+                                activeSkillNames = uiState.activeSkillNames,
                             )
                         }
 
@@ -433,11 +463,17 @@ private fun SearchParametersSection(
                         label = { Text("Zip Code", fontSize = 10.sp) },
                         placeholder = { Text("11581", fontSize = 10.sp) },
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = {
-                            keyboard?.hide()
-                            viewModel.applyZipCode(zipInput)
-                        }),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(
+                            onSearch = {
+                                keyboard?.hide()
+                                viewModel.applyZipCode(zipInput)
+                            },
+                            onDone = {
+                                keyboard?.hide()
+                                viewModel.applyZipCode(zipInput)
+                            },
+                        ),
                         modifier = Modifier.width(105.dp),
                     )
                     Button(

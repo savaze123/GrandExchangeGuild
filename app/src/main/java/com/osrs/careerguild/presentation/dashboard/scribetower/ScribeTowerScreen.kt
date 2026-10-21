@@ -795,9 +795,9 @@ private fun AtsParchmentPreview(
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = "Marjan NYC Inc.  |  Technical Solutions & E-Commerce Developer (Jun 2022 – Dec 2023)\n" +
-                       "• Configured and maintained modular e-commerce architecture utilizing Shopify native components and platform APIs.\n" +
-                       "• Streamlined inventory synchronization and customer transaction pipelines connecting store endpoints to internal databases.\n" +
-                       "• Optimized frontend responsive UI layouts and liquid templates, improving page load speeds by 32% across mobile viewports.",
+                       "• Maintained and updated responsive Shopify storefront (Dawn theme) utilizing custom Liquid and JavaScript modifications.\n" +
+                       "• Configured marketplace API integrations and catalog synchronization across third-party sales channels (Amazon, eBay, TikTok).\n" +
+                       "• Streamlined multi-channel inventory orchestration, eliminating order fulfillment sync discrepancies.",
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
                 color = Color(0xFF222222),
             )
@@ -814,7 +814,11 @@ private fun AtsParchmentPreview(
                        "• Built token-governed budget guardrails with monthly spending ceilings and offline fallback caching (100% uptime).\n" +
                        "European Car Manufacturer Data Modeling  |  Relational Database Architecture\n" +
                        "• Collaborated to design a robust relational database schema and subject-area diagrams using ERwin and SQL.\n" +
-                       "• Built audit table triggers and implemented temporal versioning across PostgreSQL, SQL Server, and MySQL.",
+                       "• Built audit table triggers and implemented temporal versioning across PostgreSQL, SQL Server, and MySQL.\n" +
+                       "Discord Bot  |  Asynchronous Media & Community Platform\n" +
+                       "• Engineered asynchronous bot featuring FIFO queue media playback and modular command handlers using discord.py.\n" +
+                       "Club Website (wcmaa.com)  |  Responsive Web Architecture\n" +
+                       "• Built responsive website (wcmaa.com) with HTML5/CSS3/JS, boosting viewership by 20% and engagement by 10%.",
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
                 color = Color(0xFF222222),
             )

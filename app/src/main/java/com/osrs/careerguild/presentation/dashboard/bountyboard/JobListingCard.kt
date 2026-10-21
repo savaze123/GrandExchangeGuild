@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -56,6 +58,7 @@ import com.osrs.careerguild.domain.model.JobListing
  *
  * Node: UI_SPLIT_SCAFFOLD (Bounty Board list pane)
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun JobListingCard(
     job             : JobListing,
@@ -66,6 +69,7 @@ fun JobListingCard(
     onQueueAutoApply: (JobListing) -> Unit = {},
     modifier        : Modifier = Modifier,
     userZipCode     : String = "11581",
+    activeSkillNames: Set<String> = emptySet(),
 ) {
     val tierColor = scoreTierColor(job.score)
     var isTerminalOpen by remember { mutableStateOf(false) }
@@ -83,11 +87,11 @@ fun JobListingCard(
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(10.dp)) {
 
             // --- Header row: score badge + title (Clickable link routing) ---
             Row(
-                verticalAlignment    = Alignment.CenterVertically,
+                verticalAlignment    = Alignment.Top,
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier             = Modifier
                     .fillMaxWidth()
@@ -102,7 +106,7 @@ fun JobListingCard(
                             fontWeight = FontWeight.Bold,
                             color      = MaterialTheme.colorScheme.primary,
                         ),
-                        maxLines  = 1,
+                        maxLines  = 2,
                         overflow  = TextOverflow.Ellipsis,
                     )
                     Text(
@@ -116,9 +120,10 @@ fun JobListingCard(
             Spacer(modifier = Modifier.height(4.dp))
 
             // --- Company + source + link verification ---
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
                     text  = "${job.company}  ·  ${job.source}",
@@ -142,26 +147,32 @@ fun JobListingCard(
             Spacer(modifier = Modifier.height(4.dp))
 
             // --- Job Location and Distance (Directive 2) ---
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Icon(
-                    imageVector = Icons.Default.LocationOn,
-                    contentDescription = null,
-                    tint = Color(0xFFFFD700),
-                    modifier = Modifier.size(13.dp),
-                )
-                val locationDistanceText = JobLocationUtils.formatLocationAndDistance(
-                    jobLocation = job.location,
-                    workMode = job.workMode,
-                    userZip = userZipCode,
-                )
-                Text(
-                    text = locationDistanceText,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-                    color = Color(0xFFFFD700).copy(alpha = 0.9f),
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = null,
+                        tint = Color(0xFFFFD700),
+                        modifier = Modifier.size(13.dp),
+                    )
+                    val locationDistanceText = JobLocationUtils.formatLocationAndDistance(
+                        jobLocation = job.location,
+                        workMode = job.workMode,
+                        userZip = userZipCode,
+                    )
+                    Text(
+                        text = locationDistanceText,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                        color = Color(0xFFFFD700).copy(alpha = 0.9f),
+                    )
+                }
                 Surface(
                     shape = RoundedCornerShape(3.dp),
                     color = Color(0xFF3D2B1F),
@@ -179,12 +190,19 @@ fun JobListingCard(
             // --- Matched skills chips ---
             if (job.matchedSkills.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    job.matchedSkills.take(4).forEach { skill ->
-                        SkillChip(skill)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    job.matchedSkills.take(5).forEach { skill ->
+                        val isHighlighted = activeSkillNames.any { active ->
+                            skill.lowercase().contains(active) || active.contains(skill.lowercase())
+                        }
+                        SkillChip(label = skill, isHighlighted = isHighlighted)
                     }
-                    if (job.matchedSkills.size > 4) {
-                        SkillChip("+${job.matchedSkills.size - 4}")
+                    if (job.matchedSkills.size > 5) {
+                        SkillChip("+${job.matchedSkills.size - 5}")
                     }
                 }
             }
@@ -361,19 +379,27 @@ private fun ScoreBadge(score: Int, color: Color) {
 }
 
 @Composable
-private fun SkillChip(label: String) {
+private fun SkillChip(label: String, isHighlighted: Boolean = false) {
     Box(
         modifier = Modifier
             .background(
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                color = if (isHighlighted) Color(0xFFFFD700).copy(alpha = 0.22f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(4.dp),
+            )
+            .border(
+                width = if (isHighlighted) 1.dp else 0.5.dp,
+                color = if (isHighlighted) Color(0xFFFFD700) else MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
                 shape = RoundedCornerShape(4.dp),
             )
             .padding(horizontal = 6.dp, vertical = 2.dp),
     ) {
         Text(
-            text  = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary,
+            text  = if (isHighlighted) "★ $label" else label,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontWeight = if (isHighlighted) FontWeight.Bold else FontWeight.Normal,
+                fontSize = 9.5.sp,
+            ),
+            color = if (isHighlighted) Color(0xFFFFD700) else MaterialTheme.colorScheme.primary,
         )
     }
 }

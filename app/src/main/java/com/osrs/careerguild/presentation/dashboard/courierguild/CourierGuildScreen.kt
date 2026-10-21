@@ -11,6 +11,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -279,27 +281,29 @@ fun CourierGuildScreen(
             }
         }
 
-        // --- Location & Dispatch Parameters Bar (Section 3) ---
-        CourierLocationParamsBar(
-            zipCode = zipCode,
-            onZipCodeChange = { zipCode = it },
-            searchRadius = searchRadius,
-            onRadiusChange = { searchRadius = it },
-            workMode = workMode,
-            onWorkModeChange = { workMode = it },
-            locationLabel = userProfile.location,
-        )
-
-        // --- Main Ledger Content ---
+        // --- Main Ledger Content (Scroll-friendly to maximize vertical space for application cards) ---
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(vertical = 8.dp),
+            contentPadding = PaddingValues(vertical = 6.dp),
         ) {
-            // 1. Ledger Dashboard Summary Counters
+            // 1. Location & Dispatch Parameters Bar (Section 3 - scrolls off when browsing)
+            item {
+                CourierLocationParamsBar(
+                    zipCode = zipCode,
+                    onZipCodeChange = { zipCode = it },
+                    searchRadius = searchRadius,
+                    onRadiusChange = { searchRadius = it },
+                    workMode = workMode,
+                    onWorkModeChange = { workMode = it },
+                    locationLabel = userProfile.location,
+                )
+            }
+
+            // 2. Ledger Dashboard Summary Counters
             item {
                 LedgerCountersRow(
                     queuedCount       = applications.count { it.status == ApplicationStatus.QUEUED },
@@ -544,21 +548,21 @@ private fun CounterTile(
     Surface(
         shape = RoundedCornerShape(8.dp),
         color = OsrsStone,
-        border = BorderStroke(1.5.dp, color),
+        border = BorderStroke(1.2.dp, color),
         modifier = modifier,
     ) {
         Column(
-            modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+            modifier = Modifier.padding(vertical = 5.dp, horizontal = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
                 text = count.toString(),
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 16.sp),
                 color = color,
             )
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                 color = Color.White.copy(alpha = 0.85f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -596,6 +600,7 @@ private fun PlatformTabsRow(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ApplicationQueueCard(
     app: QueuedApplication,
@@ -610,12 +615,12 @@ private fun ApplicationQueueCard(
         border = BorderStroke(1.dp, app.status.color.copy(alpha = 0.7f)),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(10.dp)) {
             // Header Row: Status Badge + Platform & Link Validation
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Surface(
                     shape = RoundedCornerShape(4.dp),
@@ -630,9 +635,9 @@ private fun ApplicationQueueCard(
                     )
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Surface(
                         shape = RoundedCornerShape(4.dp),
@@ -662,13 +667,15 @@ private fun ApplicationQueueCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             // Job Title + Company
             Text(
                 text = app.title,
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                 color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = app.company,
@@ -695,6 +702,7 @@ private fun ApplicationQueueCard(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.weight(1f, fill = false),
                     ) {
                         Icon(
                             imageVector = Icons.Default.Description,
@@ -706,6 +714,8 @@ private fun ApplicationQueueCard(
                             text = "📎 Attached: ${app.attachedPdf}",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = Color(0xFF00E5FF),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                     Text(
@@ -716,13 +726,13 @@ private fun ApplicationQueueCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Action: Dispatch / Status Progression
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 when (app.status) {
                     ApplicationStatus.QUEUED -> {
@@ -745,9 +755,9 @@ private fun ApplicationQueueCard(
                         }
                     }
                     ApplicationStatus.IN_TRANSIT -> {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                        FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
@@ -772,9 +782,9 @@ private fun ApplicationQueueCard(
                         }
                     }
                     ApplicationStatus.SUBMITTED -> {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                        FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Surface(
                                 shape = RoundedCornerShape(4.dp),

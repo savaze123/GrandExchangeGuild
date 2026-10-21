@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.osrs.careerguild.domain.model.GuildBuilding
@@ -33,9 +34,9 @@ import com.osrs.careerguild.presentation.hub.GuildHubPane
  */
 @Composable
 fun GuildScaffold() {
-    // Active building selected by user
-    var selectedBuilding by remember { mutableStateOf<GuildBuilding?>(null) }
-    var isDrawerExpanded by remember { mutableStateOf(false) }
+    // Active building selected by user (persists across foldable posture changes)
+    var selectedBuilding by rememberSaveable { mutableStateOf<GuildBuilding?>(null) }
+    var isDrawerExpanded by rememberSaveable { mutableStateOf(false) }
 
     // Intercept back gesture: collapse drawer first before exiting
     BackHandler(enabled = isDrawerExpanded) {
