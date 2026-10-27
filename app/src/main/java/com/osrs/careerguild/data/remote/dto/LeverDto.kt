@@ -7,6 +7,7 @@ import kotlinx.serialization.Serializable
 data class LeverJobDto(
     @SerialName("id") val id: String? = null,
     @SerialName("text") val text: String? = null,
+    @SerialName("description") val description: String? = null,
     @SerialName("applyUrl") val applyUrl: String? = null,
     @SerialName("hostedUrl") val hostedUrl: String? = null,
     @SerialName("categories") val categories: LeverCategoriesDto? = null,

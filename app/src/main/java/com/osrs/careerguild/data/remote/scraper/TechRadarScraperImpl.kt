@@ -46,6 +46,13 @@ class TechRadarScraperImpl(
     private val blockedCompanyDao: BlockedCompanyDao,
     private val geoFilter        : GeoFilter = GeoFilter(),
 ) {
+    private val politeClient = com.osrs.careerguild.core.network.PoliteHttpClient(httpClient)
+    private val greenhouseSource = com.osrs.careerguild.data.remote.scraper.sources.GreenhouseSource(politeClient, geoFilter)
+    private val leverSource = com.osrs.careerguild.data.remote.scraper.sources.LeverSource(politeClient, geoFilter)
+    private val ashbySource = com.osrs.careerguild.data.remote.scraper.sources.AshbySource(politeClient, geoFilter)
+    private val adzunaSource = com.osrs.careerguild.data.remote.scraper.sources.AdzunaSource(politeClient, geoFilter)
+    private val remotiveSource = com.osrs.careerguild.data.remote.scraper.sources.RemotiveSource(politeClient, geoFilter)
+    private val arbeitnowSource = com.osrs.careerguild.data.remote.scraper.sources.ArbeitnowSource(politeClient, geoFilter)
 
     /**
      * Scrapes active feeds concurrently with strict direct requisition routing and deduplication.
@@ -81,24 +88,27 @@ class TechRadarScraperImpl(
                                         .getOrDefault(emptyList())
                                 }
                                 is JobFeedSource.RemotiveSoftwareDev -> {
-                                    fetchRemotiveFeed(source, activeSkillNames, activeSkillLower, blockedNames, limit = 30)
-                                        .getOrDefault(emptyList())
+                                    val jobs = remotiveSource.fetchJobs(activeSkillNames, limit = 50)
+                                    if (jobs.isNotEmpty()) jobs else fetchRemotiveFeed(source, activeSkillNames, activeSkillLower, blockedNames, limit = 30).getOrDefault(emptyList())
                                 }
                                 is JobFeedSource.ArbeitnowJobBoard -> {
-                                    fetchArbeitnowFeed(source, activeSkillNames, activeSkillLower, blockedNames, limit = 30)
-                                        .getOrDefault(emptyList())
+                                    val jobs = arbeitnowSource.fetchJobs(activeSkillNames, limit = 50)
+                                    if (jobs.isNotEmpty()) jobs else fetchArbeitnowFeed(source, activeSkillNames, activeSkillLower, blockedNames, limit = 30).getOrDefault(emptyList())
                                 }
                                 is JobFeedSource.GreenhouseBoard -> {
-                                    fetchGreenhouseFeed(source, activeSkillNames, activeSkillLower, blockedNames, limit = 25)
-                                        .getOrDefault(emptyList())
+                                    val jobs = greenhouseSource.fetchJobs(source.slug, source.companyName, activeSkillNames, limit = 50)
+                                    if (jobs.isNotEmpty()) jobs else fetchGreenhouseFeed(source, activeSkillNames, activeSkillLower, blockedNames, limit = 25).getOrDefault(emptyList())
                                 }
                                 is JobFeedSource.LeverBoard -> {
-                                    fetchLeverFeed(source, activeSkillNames, activeSkillLower, blockedNames, limit = 25)
-                                        .getOrDefault(emptyList())
+                                    val jobs = leverSource.fetchJobs(source.slug, source.companyName, activeSkillNames, limit = 50)
+                                    if (jobs.isNotEmpty()) jobs else fetchLeverFeed(source, activeSkillNames, activeSkillLower, blockedNames, limit = 25).getOrDefault(emptyList())
                                 }
                                 is JobFeedSource.AshbyBoard -> {
-                                    fetchAshbyFeed(source, activeSkillNames, activeSkillLower, blockedNames, limit = 25)
-                                        .getOrDefault(emptyList())
+                                    val jobs = ashbySource.fetchJobs(source.slug, source.companyName, activeSkillNames, limit = 50)
+                                    if (jobs.isNotEmpty()) jobs else fetchAshbyFeed(source, activeSkillNames, activeSkillLower, blockedNames, limit = 25).getOrDefault(emptyList())
+                                }
+                                is JobFeedSource.AdzunaSearch -> {
+                                    adzunaSource.fetchJobs(listOf(source.title), pagesPerTitle = 1, activeSkillNames = activeSkillNames)
                                 }
                                 else -> {
                                     val raw = fetchJsonFeed(source).getOrElse { emptyList() }
@@ -473,6 +483,8 @@ class TechRadarScraperImpl(
                     description   = generateJobDescription(seed.company, seed.title, seed.location, matched),
                     location      = seed.location,
                     workMode      = seed.workMode,
+                    applyUrl      = seed.url,
+                    linkStatus    = "SEED",
                 )
             }
     }
@@ -1102,6 +1114,8 @@ class TechRadarScraperImpl(
                 description   = generateJobDescription(seed.company, seed.title, seed.location, matched),
                 location      = seed.location,
                 workMode      = seed.workMode,
+                applyUrl      = seed.atsUrl,
+                linkStatus    = "SEED",
             )
         }
     }
@@ -1180,25 +1194,28 @@ class TechRadarScraperImpl(
     companion object {
         const val MAX_RESULTS = 300
 
-        val DEFAULT_SOURCES: List<JobFeedSource> = listOf(
-            JobFeedSource.SimplifyReadmeTable,
-            JobFeedSource.SimplifyNewGrad,
-            JobFeedSource.SimplifyInternship,
-            JobFeedSource.LinkedInJobs(keywords = "Software Engineer", location = "New York, NY", start = 0),
-            JobFeedSource.LinkedInJobs(keywords = "Software Engineer", location = "United States", start = 0),
-            JobFeedSource.LinkedInJobs(keywords = "Junior Software Developer", location = "United States", start = 0),
-            JobFeedSource.LinkedInJobs(keywords = "AI Engineer", location = "United States", start = 0),
-            JobFeedSource.RemotiveSoftwareDev,
-            JobFeedSource.ArbeitnowJobBoard,
-            JobFeedSource.GreenhouseBoard("canonical", "Canonical"),
-            JobFeedSource.GreenhouseBoard("cloudflare", "Cloudflare"),
-            JobFeedSource.GreenhouseBoard("datadog", "Datadog"),
-            JobFeedSource.GreenhouseBoard("stripe", "Stripe"),
-            JobFeedSource.GreenhouseBoard("mongodb", "MongoDB"),
-            JobFeedSource.LeverBoard("palantir", "Palantir"),
-            JobFeedSource.LeverBoard("figma", "Figma"),
-            JobFeedSource.AshbyBoard("openai", "OpenAI"),
-            JobFeedSource.AshbyBoard("anthropic", "Anthropic"),
-        )
+        val DEFAULT_SOURCES: List<JobFeedSource> = buildList {
+            add(JobFeedSource.SimplifyReadmeTable)
+            add(JobFeedSource.SimplifyNewGrad)
+            add(JobFeedSource.SimplifyInternship)
+            add(JobFeedSource.LinkedInJobs(keywords = "Software Engineer", location = "New York, NY", start = 0))
+            add(JobFeedSource.LinkedInJobs(keywords = "Software Engineer", location = "United States", start = 0))
+            add(JobFeedSource.LinkedInJobs(keywords = "Junior Software Developer", location = "United States", start = 0))
+            add(JobFeedSource.LinkedInJobs(keywords = "AI Engineer", location = "United States", start = 0))
+            add(JobFeedSource.RemotiveSoftwareDev)
+            add(JobFeedSource.ArbeitnowJobBoard)
+            add(JobFeedSource.AdzunaSearch("Software Engineer", page = 1))
+            add(JobFeedSource.AdzunaSearch("AI Engineer", page = 1))
+            for (board in com.osrs.careerguild.data.remote.scraper.sources.CompanyBoards.CURATED_BOARDS) {
+                when (board.boardType) {
+                    com.osrs.careerguild.data.remote.scraper.sources.BoardType.GREENHOUSE ->
+                        add(JobFeedSource.GreenhouseBoard(board.slug, board.companyName))
+                    com.osrs.careerguild.data.remote.scraper.sources.BoardType.LEVER ->
+                        add(JobFeedSource.LeverBoard(board.slug, board.companyName))
+                    com.osrs.careerguild.data.remote.scraper.sources.BoardType.ASHBY ->
+                        add(JobFeedSource.AshbyBoard(board.slug, board.companyName))
+                }
+            }
+        }
     }
 }

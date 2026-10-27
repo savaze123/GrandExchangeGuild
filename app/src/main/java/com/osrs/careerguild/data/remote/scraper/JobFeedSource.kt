@@ -98,6 +98,11 @@ sealed interface JobFeedSource {
         override val url   = "https://api.ashbyhq.com/posting-api/job-board/$slug"
     }
 
+    data class AdzunaSearch(val title: String = "Software Engineer", val page: Int = 1) : JobFeedSource {
+        override val label = "Jobs by Adzuna"
+        override val url   = "https://api.adzuna.com/v1/api/jobs/us/search/$page"
+    }
+
     // -----------------------------------------------------------------------
     // Stub sources — Phase 3 will implement real fetch + parse logic
     // -----------------------------------------------------------------------

@@ -15,9 +15,25 @@ data class GreenhouseJobDto(
     @SerialName("absolute_url") val absoluteUrl: String? = null,
     @SerialName("company_name") val companyName: String? = null,
     @SerialName("location") val location: GreenhouseLocationDto? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
+    @SerialName("departments") val departments: List<GreenhouseDepartmentDto> = emptyList(),
+    @SerialName("metadata") val metadata: List<GreenhouseMetadataDto> = emptyList(),
 )
 
 @Serializable
 data class GreenhouseLocationDto(
     @SerialName("name") val name: String? = null,
+)
+
+@Serializable
+data class GreenhouseDepartmentDto(
+    @SerialName("id") val id: Long? = null,
+    @SerialName("name") val name: String? = null,
+)
+
+@Serializable
+data class GreenhouseMetadataDto(
+    @SerialName("id") val id: Long? = null,
+    @SerialName("name") val name: String? = null,
+    @SerialName("value") val value: String? = null,
 )
