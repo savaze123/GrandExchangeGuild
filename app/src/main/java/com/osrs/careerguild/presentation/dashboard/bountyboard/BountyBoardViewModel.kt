@@ -146,7 +146,10 @@ class BountyBoardViewModel(
                     filterMode = workMode,
                 )
 
-                matchesQuery && matchesSkill && matchesRadius && matchesWorkMode
+                // Dead link suppression (Task 6)
+                val isNotDead = j.linkStatus != "DEAD"
+
+                matchesQuery && matchesSkill && matchesRadius && matchesWorkMode && isNotDead
             }
             .sortedByDescending { it.score }
     }
