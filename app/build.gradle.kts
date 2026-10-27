@@ -60,6 +60,12 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
+
     // GEMINI_API_KEY: add to local.properties (never commit the key)
     //   GEMINI_API_KEY=your_key_here
     val localProps = Properties().apply {
@@ -155,4 +161,8 @@ dependencies {
 
     // TRAJECTORY_SCORER (Gemini 1.5 Flash via Google AI SDK)
     implementation(libs.generativeai)
+
+    // Unit Testing
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 }

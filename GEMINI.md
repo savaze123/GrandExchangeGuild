@@ -39,12 +39,12 @@
 - presentation/dashboard/scribetower/ScribeTowerScreen.kt (large): resume upload and ATS preview
 - presentation/dashboard/skillaltar/: SkillAltarScreen.kt, SkillAltarViewModel.kt, SkillAltarUiState.kt, SkillCard.kt
 - presentation/dashboard/courierguild/CourierGuildScreen.kt (large): auto-apply ledger and PDF dialog
-- presentation/auth/GoogleAuthComponents.kt, common/InfoTooltip.kt, theme/CareerGuildTheme.kt
-
-## 4. Planned Files (agent: move each line into section 3 once the file exists)
 - core/resume/: BaseResume.kt, ResumeTextExtractor.kt, ResumeStructurer.kt, BaseResumeRepository.kt
 - core/github/GitHubProfileFetcher.kt
 - domain/resume/: ResumeTailor.kt, ResumeVerifier.kt, TailoredResume.kt
 - core/network/PoliteHttpClient.kt
-- data/remote/scraper/sources/: one class per job source, plus CompanyBoards.kt
+- data/remote/scraper/sources/: GreenhouseSource.kt, LeverSource.kt, AshbySource.kt, AdzunaSource.kt, RemotiveSource.kt, ArbeitnowSource.kt, CompanyBoards.kt
 - core/diagnostics/JobSourceDiagnostics.kt
+- presentation/auth/GoogleAuthComponents.kt, common/InfoTooltip.kt, theme/CareerGuildTheme.kt
+
+## 4. Planned Files (agent: move each line into section 3 once the file exists)
