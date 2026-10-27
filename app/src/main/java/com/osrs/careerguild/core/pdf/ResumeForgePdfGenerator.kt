@@ -171,120 +171,23 @@ object ResumeForgePdfGenerator {
         canvas.drawText("• Architecture & Methodologies: Microservices, Clean Architecture (MVI), CI/CD Telemetry, TDD", leftMargin, y, bodyPaint)
         y += 11.0f
 
-        // --- 4. PROFESSIONAL EXPERIENCE (Strictly Legitimate Employers Only) ---
+        // --- 4. PROFESSIONAL EXPERIENCE ---
         canvas.drawText("PROFESSIONAL EXPERIENCE", leftMargin, y, sectionPaint)
         y += 11f
+        y = drawWrappedText(canvas, "Upload your resume in Scribe Tower to populate experience.", leftMargin, y, contentWidth, bodyPaint, lineHeight = 12.0f)
+        y += 10.0f
 
-        // Employer 1: Tyche Technologies
-        canvas.drawText("Tyche Technologies  |  Software & AI Engineer", leftMargin, y, boldBodyPaint)
-        y += 10f
-        val tycheLocation = if (userProfile.location.isNotBlank()) "${userProfile.location} (Hybrid)" else "Hybrid / Remote"
-        canvas.drawText("Jan 2024 – Present  ·  $tycheLocation", leftMargin, y, subtitlePaint)
-        y += 9f
-        val tycheBullets = listOf(
-            "Engineered high-throughput event processing pipelines and real-time backend microservices with strict telemetry safeguards, sustaining 45,000 requests/sec with 99.99% availability.",
-            "Integrated on-device AI inference pipelines utilizing Gemini Nano and AICore, reducing cloud API operational overhead by 40% and achieving sub-50ms token latency.",
-            "Designed local encrypted persistence layers using SQLCipher with hardware-backed Keystore authentication, ensuring zero PII leak and full compliance with SOC2 Type II standards.",
-            "Spearheaded automated form mapping and DOM parsing engines for seamless third-party ATS workflow integration, cutting application turnaround times by 75%."
-        )
-        for (b in tycheBullets) {
-            y = drawWrappedText(canvas, "•  $b", leftMargin + 6f, y, contentWidth - 6f, bodyPaint, lineHeight = 12.0f)
-            y += 2.5f
-        }
-        y += 5.0f
-
-        // Employer 2: Marjan NYC Inc.
-        // Factual baseline: Maintaining Shopify storefront (Dawn theme), Liquid/JS customization, marketplace APIs.
-        // Negative constraints: NO Git/version control; no claims of custom-building native Shopify platform; NO "vibe coding".
-        canvas.drawText("Marjan NYC Inc.  |  Technical Solutions & E-Commerce Developer", leftMargin, y, boldBodyPaint)
-        y += 10f
-        canvas.drawText("Jun 2022 – Dec 2023  ·  New York, NY", leftMargin, y, subtitlePaint)
-        y += 9f
-        val marjanBullets = listOf(
-            "Maintained and updated responsive Shopify storefront (Dawn theme) utilizing custom Liquid and JavaScript modifications to support marketing and merchandising requirements.",
-            "Configured marketplace API integrations and catalog synchronization across third-party sales channels (Amazon, eBay, TikTok), streamlining order fulfillment and data consistency."
-        )
-        for (b in marjanBullets) {
-            y = drawWrappedText(canvas, "•  $b", leftMargin + 6f, y, contentWidth - 6f, bodyPaint, lineHeight = 11.5f)
-            y += 2.0f
-        }
-        y += 5.0f
-
-        // --- 5. TECHNICAL PROJECTS (Strictly Factual Projects from Baseline Master Resume & Verified Sources) ---
+        // --- 5. TECHNICAL PROJECTS ---
         canvas.drawText("TECHNICAL PROJECTS", leftMargin, y, sectionPaint)
-        y += 10f
+        y += 11f
+        y = drawWrappedText(canvas, "Upload your resume or sync GitHub to populate projects.", leftMargin, y, contentWidth, bodyPaint, lineHeight = 12.0f)
+        y += 10.0f
 
-        // Project 1: Grand Exchange Guild
-        canvas.drawText("Grand Exchange Guild  |  Android & Spatial 3D Platform", leftMargin, y, boldBodyPaint)
-        y += 9f
-        canvas.drawText("Kotlin, Jetpack Compose, Google Filament 3D, SQLite/SQLCipher, Coroutines", leftMargin, y, subtitlePaint)
-        y += 8f
-        val gegBullets = listOf(
-            "Architected 120Hz Filament 3D rendering pipeline and reactive Compose scaffold supporting foldable postures (Tensor G5, 16KB ELF alignment).",
-            "Built token-governed budget guardrails with monthly spending ceilings and offline fallback caching, ensuring 100% operational uptime."
-        )
-        for (b in gegBullets) {
-            y = drawWrappedText(canvas, "•  $b", leftMargin + 6f, y, contentWidth - 6f, bodyPaint, lineHeight = 11.5f)
-            y += 2.0f
-        }
-        y += 4.0f
-
-        // Project 2: European Car Manufacturer Data Modeling (Factual Master Resume)
-        canvas.drawText("European Car Manufacturer Data Modeling  |  Relational Database Architecture", leftMargin, y, boldBodyPaint)
-        y += 9f
-        canvas.drawText("ERwin, SQL, DBeaver, Docker, PostgreSQL, SQL Server, MySQL", leftMargin, y, subtitlePaint)
-        y += 8f
-        val carBullets = listOf(
-            "Collaborated to design a robust relational database schema and subject-area diagrams enforcing domain constraints and naming conventions.",
-            "Built audit table triggers and implemented temporal versioning across PostgreSQL, SQL Server, and MySQL, with reusable views and functions."
-        )
-        for (b in carBullets) {
-            y = drawWrappedText(canvas, "•  $b", leftMargin + 6f, y, contentWidth - 6f, bodyPaint, lineHeight = 11.5f)
-            y += 2.0f
-        }
-        y += 4.0f
-
-        // Project 3: Discord Bot (Factual Master Resume)
-        canvas.drawText("Discord Bot  |  Asynchronous Media & Community Platform", leftMargin, y, boldBodyPaint)
-        y += 9f
-        canvas.drawText("Python, discord.py, Asynchronous Programming, FFmpeg", leftMargin, y, subtitlePaint)
-        y += 8f
-        val discordBullets = listOf(
-            "Engineered an asynchronous media playback and moderation bot featuring FIFO queue media playback, error handling, and modular command handlers using discord.py."
-        )
-        for (b in discordBullets) {
-            y = drawWrappedText(canvas, "•  $b", leftMargin + 6f, y, contentWidth - 6f, bodyPaint, lineHeight = 11.5f)
-            y += 2.0f
-        }
-        y += 4.0f
-
-        // Project 4: Club Website (Factual Master Resume)
-        canvas.drawText("Club Website (wcmaa.com)  |  Responsive Web Architecture", leftMargin, y, boldBodyPaint)
-        y += 9f
-        canvas.drawText("HTML5, CSS3, JavaScript", leftMargin, y, subtitlePaint)
-        y += 8f
-        val websiteBullets = listOf(
-            "Designed and launched responsive website (wcmaa.com) with cross-browser compatibility, driving a 20% boost in unique viewership and a 10% increase in digital engagement."
-        )
-        for (b in websiteBullets) {
-            y = drawWrappedText(canvas, "•  $b", leftMargin + 6f, y, contentWidth - 6f, bodyPaint, lineHeight = 11.5f)
-            y += 2.0f
-        }
-        y += 5.0f
-
-        // --- 6. EDUCATION & CERTIFICATIONS (Strictly Factual: BA in CS & IBM Cert, Zero Fabricated Honors) ---
+        // --- 6. EDUCATION & CERTIFICATIONS ---
         canvas.drawText("EDUCATION & CERTIFICATIONS", leftMargin, y, sectionPaint)
         y += 11f
-        canvas.drawText("Bachelor of Arts in Computer Science (BA in Computer Science)", leftMargin, y, boldBodyPaint)
-        y += 10f
-        canvas.drawText("Specialization: Distributed Systems & Artificial Intelligence", leftMargin, y, subtitlePaint)
-        y += 9f
-        canvas.drawText("Relevant Coursework: Advanced Operating Systems, Distributed Systems, Database Internals, Analysis of Algorithms", leftMargin, y, subtitlePaint)
-        y += 10f
-        // Completed (2025), factual
-        canvas.drawText("IBM Data Engineering Professional Certificate  |  Completed (2025)", leftMargin, y, boldBodyPaint)
-        y += 9f
-        canvas.drawText("Specialization in Apache Spark, Kafka, Airflow, Relational Database Modeling, and ETL Streaming Pipelines", leftMargin, y, subtitlePaint)
+        y = drawWrappedText(canvas, "Upload your resume in Scribe Tower to populate education and certifications.", leftMargin, y, contentWidth, bodyPaint, lineHeight = 12.0f)
+        y += 10.0f
 
         // --- 7. ATS COMPLIANCE FOOTER (Strict 1-Page Benchmark Calibration) ---
         y += 8f

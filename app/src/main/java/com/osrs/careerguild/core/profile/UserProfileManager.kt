@@ -18,7 +18,19 @@ data class UserProfile(
     val location: String = "",
     val github: String = "",
     val ssoPreferred: Boolean = false,
-)
+    val githubUsername: String = "",
+) {
+    val effectiveGithubUsername: String
+        get() = if (githubUsername.isNotBlank()) {
+            githubUsername.trim()
+        } else {
+            github.trim()
+                .removePrefix("https://")
+                .removePrefix("http://")
+                .removePrefix("github.com/")
+                .removeSuffix("/")
+        }
+}
 
 /**
  * UserProfileManager — Thread-safe persistent profile manager backed by SharedPreferences.
@@ -41,6 +53,7 @@ class UserProfileManager private constructor(context: Context) {
             location = prefs.getString(KEY_LOCATION, "") ?: "",
             github = prefs.getString(KEY_GITHUB, "") ?: "",
             ssoPreferred = prefs.getBoolean(KEY_SSO_PREF, false),
+            githubUsername = prefs.getString(KEY_GITHUB_USERNAME, "") ?: "",
         )
     }
 
@@ -51,6 +64,7 @@ class UserProfileManager private constructor(context: Context) {
             .putString(KEY_ADDRESS, profile.address.trim())
             .putString(KEY_LOCATION, profile.location.trim())
             .putString(KEY_GITHUB, profile.github.trim())
+            .putString(KEY_GITHUB_USERNAME, profile.githubUsername.trim())
             .putBoolean(KEY_SSO_PREF, profile.ssoPreferred)
             .apply()
         _profile.value = profile
@@ -62,6 +76,7 @@ class UserProfileManager private constructor(context: Context) {
         private const val KEY_ADDRESS = "profile_address"
         private const val KEY_LOCATION = "profile_location"
         private const val KEY_GITHUB = "profile_github"
+        private const val KEY_GITHUB_USERNAME = "profile_github_username"
         private const val KEY_SSO_PREF = "profile_sso_pref"
 
         @Volatile

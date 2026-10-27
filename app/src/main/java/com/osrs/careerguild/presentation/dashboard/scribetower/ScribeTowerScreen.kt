@@ -779,50 +779,26 @@ private fun AtsParchmentPreview(
 
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "PROFESSIONAL EXPERIENCE (Legitimate Employers)",
+                text = "PROFESSIONAL EXPERIENCE",
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                 color = Color.Black,
             )
             Text(
-                text = "Tyche Technologies  |  Software & AI Engineer (Jan 2024 – Present)\n" +
-                       "• Engineered high-throughput event processing pipelines and real-time backend microservices (45k req/sec, 99.99% uptime).\n" +
-                       "• Integrated on-device Gemini inference pipelines reducing cloud API operational overhead by 40% with sub-50ms latency.\n" +
-                       "• Designed local encrypted persistence layers using SQLCipher with hardware-backed Keystore authentication (zero PII leak).\n" +
-                       "• Spearheaded automated form mapping and DOM parsing engines for seamless third-party ATS workflow integration.",
+                text = "Upload your resume above to populate verified professional experience.",
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
                 color = Color(0xFF222222),
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "Marjan NYC Inc.  |  Technical Solutions & E-Commerce Developer (Jun 2022 – Dec 2023)\n" +
-                       "• Maintained and updated responsive Shopify storefront (Dawn theme) utilizing custom Liquid and JavaScript modifications.\n" +
-                       "• Configured marketplace API integrations and catalog synchronization across third-party sales channels (Amazon, eBay, TikTok).\n" +
-                       "• Streamlined multi-channel inventory orchestration, eliminating order fulfillment sync discrepancies.",
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
-                color = Color(0xFF222222),
-            )
-
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = "TECHNICAL PROJECTS (Factual Projects Schema)",
+                text = "TECHNICAL PROJECTS",
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                 color = Color.Black,
             )
             Text(
-                text = "Grand Exchange Guild  |  Android & Spatial 3D Platform\n" +
-                       "• Architected 120Hz Filament 3D rendering pipeline and reactive Compose scaffold supporting foldable postures (Tensor G5).\n" +
-                       "• Built token-governed budget guardrails with monthly spending ceilings and offline fallback caching (100% uptime).\n" +
-                       "European Car Manufacturer Data Modeling  |  Relational Database Architecture\n" +
-                       "• Collaborated to design a robust relational database schema and subject-area diagrams using ERwin and SQL.\n" +
-                       "• Built audit table triggers and implemented temporal versioning across PostgreSQL, SQL Server, and MySQL.\n" +
-                       "Discord Bot  |  Asynchronous Media & Community Platform\n" +
-                       "• Engineered asynchronous bot featuring FIFO queue media playback and modular command handlers using discord.py.\n" +
-                       "Club Website (wcmaa.com)  |  Responsive Web Architecture\n" +
-                       "• Built responsive website (wcmaa.com) with HTML5/CSS3/JS, boosting viewership by 20% and engagement by 10%.",
+                text = "Upload your resume or sync GitHub to populate verified technical projects.",
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
                 color = Color(0xFF222222),
             )
-
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = "EDUCATION & CERTIFICATIONS",
@@ -830,10 +806,7 @@ private fun AtsParchmentPreview(
                 color = Color.Black,
             )
             Text(
-                text = "• Bachelor of Arts in Computer Science (Specialization: Distributed Systems & AI)\n" +
-                       "  Relevant Coursework: Advanced Operating Systems, Distributed Systems, Database Internals, Analysis of Algorithms\n" +
-                       "• IBM Data Engineering Professional Certificate | Completed (2025)\n" +
-                       "  Specialization in Apache Spark, Kafka, Airflow, Relational Database Modeling, and ETL Streaming Pipelines",
+                text = "Upload your resume above to populate education and certifications.",
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
                 color = Color(0xFF222222),
             )

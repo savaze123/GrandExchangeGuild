@@ -942,8 +942,7 @@ private fun CourierPdfViewerDialog(
                         color = Color.Black,
                     )
                     Text(
-                        text = "• Tyche Technologies: Software & AI Engineer (Jan 2024 – Present)\n" +
-                               "• Marjan NYC Inc.: Technical Solutions & E-Commerce Developer (Shopify native modular components)",
+                        text = "Upload base resume in Scribe Tower to preview experience.",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
                         color = Color(0xFF222222),
                     )
@@ -954,8 +953,7 @@ private fun CourierPdfViewerDialog(
                         color = Color.Black,
                     )
                     Text(
-                        text = "• Grand Exchange Guild (120Hz Filament 3D Android Spatial Platform)\n" +
-                               "• European Car Manufacturer Data Modeling (Relational Database Architecture, SQL, ERwin)",
+                        text = "Upload base resume or sync GitHub to preview projects.",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
                         color = Color(0xFF222222),
                     )
@@ -966,8 +964,7 @@ private fun CourierPdfViewerDialog(
                         color = Color.Black,
                     )
                     Text(
-                        text = "• Bachelor of Arts in Computer Science (Specialization: Distributed Systems & AI)\n" +
-                               "• IBM Data Engineering Professional Certificate | Completed (2025)",
+                        text = "Upload base resume in Scribe Tower to preview education and certifications.",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
                         color = Color(0xFF222222),
                     )
