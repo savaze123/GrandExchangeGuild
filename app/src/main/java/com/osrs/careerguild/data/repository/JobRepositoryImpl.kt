@@ -126,9 +126,14 @@ private fun JobEntity.toDomain(): JobListing {
         matchedSkills = skills,
         isBlocked     = isBlocked,
         appliedAt     = appliedAt,
-        description   = desc,
+        description   = if (description.isNotBlank()) description else desc,
         location      = location,
         workMode      = workMode,
+        applyUrl      = applyUrl.ifBlank { atsUrl },
+        lat           = lat,
+        lng           = lng,
+        linkStatus    = linkStatus,
+        lastVerifiedAt = lastVerifiedAt,
     )
 }
 
@@ -144,4 +149,10 @@ private fun JobListing.toEntity(): JobEntity = JobEntity(
     appliedAt     = appliedAt,
     location      = location,
     workMode      = workMode,
+    applyUrl      = applyUrl.ifBlank { atsUrl },
+    description   = description,
+    lat           = lat,
+    lng           = lng,
+    linkStatus    = linkStatus,
+    lastVerifiedAt = lastVerifiedAt,
 )

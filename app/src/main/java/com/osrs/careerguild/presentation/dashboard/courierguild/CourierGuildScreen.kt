@@ -72,7 +72,10 @@ import com.osrs.careerguild.core.pdf.ResumeForgePdfGenerator
 import com.osrs.careerguild.core.profile.UserProfile
 import com.osrs.careerguild.core.profile.UserProfileManager
 import com.osrs.careerguild.domain.model.JobListing
+import com.osrs.careerguild.di.LocalAppContainer
+import com.osrs.careerguild.domain.resume.TailoredResume
 import com.osrs.careerguild.presentation.common.InfoTooltipTrigger
+import com.osrs.careerguild.presentation.dashboard.scribetower.SharedAtsResumePreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -870,6 +873,12 @@ private fun CourierPdfViewerDialog(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    val appContainer = LocalAppContainer.current
+    val baseResume by appContainer.baseResumeRepository.observeBaseResume().collectAsState(initial = null)
+
+    val tailoredResume = remember(baseResume, app) {
+        baseResume?.let { TailoredResume.fromBaseResume(it) } ?: TailoredResume()
+    }
 
     // Ensure PDF file exists on disk
     val safeCompany = app.company.replace(Regex("[^a-zA-Z0-9]"), "_").lowercase()
@@ -878,10 +887,9 @@ private fun CourierPdfViewerDialog(
     if (!pdfFile.exists()) {
         ResumeForgePdfGenerator.forgeAtsResume(
             context = context,
-            userProfile = userProfile,
+            tailoredResume = tailoredResume,
             targetTitle = app.title,
             targetCompany = app.company,
-            infusedSkills = listOf("Kotlin", "Python", "Gemini API", "SQL", "Kafka", "Airflow"),
         )
     }
 
@@ -905,71 +913,12 @@ private fun CourierPdfViewerDialog(
             }
         },
         text = {
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = OsrsParchment,
-                border = BorderStroke(1.dp, OsrsGold),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        text = userProfile.name.ifBlank { "Candidate Name" },
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color.Black,
-                    )
-                    Text(
-                        text = "Target: ${app.title} | ${app.company}",
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color(0xFF1E3A4A),
-                    )
-                    val contactParts = buildList {
-                        if (userProfile.location.isNotBlank()) add(userProfile.location)
-                        if (userProfile.github.isNotBlank()) add(userProfile.github)
-                        if (userProfile.email.isNotBlank()) add(userProfile.email)
-                    }
-                    Text(
-                        text = if (contactParts.isNotEmpty()) contactParts.joinToString(" · ") else "Candidate Anchors (Configurable in Nimbus Settings)",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                        color = Color.DarkGray,
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "PROFESSIONAL EXPERIENCE",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color.Black,
-                    )
-                    Text(
-                        text = "Upload base resume in Scribe Tower to preview experience.",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
-                        color = Color(0xFF222222),
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "TECHNICAL PROJECTS",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color.Black,
-                    )
-                    Text(
-                        text = "Upload base resume or sync GitHub to preview projects.",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
-                        color = Color(0xFF222222),
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "EDUCATION & CERTIFICATIONS",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color.Black,
-                    )
-                    Text(
-                        text = "Upload base resume in Scribe Tower to preview education and certifications.",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
-                        color = Color(0xFF222222),
-                    )
-                }
-            }
+            SharedAtsResumePreview(
+                resume = tailoredResume,
+                userProfile = userProfile,
+                targetTitle = app.title,
+                targetCompany = app.company,
+            )
         },
         confirmButton = {
             Button(

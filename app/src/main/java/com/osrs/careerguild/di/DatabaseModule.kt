@@ -59,8 +59,7 @@ object DatabaseModule {
             "career_guild.db",
         )
             .openHelperFactory(factory)
-            .addMigrations(MIGRATION_1_2)
-            .fallbackToDestructiveMigration()
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
     }
 
@@ -68,6 +67,41 @@ object DatabaseModule {
         override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
             database.execSQL("ALTER TABLE jobs ADD COLUMN location TEXT NOT NULL DEFAULT 'New York, NY'")
             database.execSQL("ALTER TABLE jobs ADD COLUMN work_mode TEXT NOT NULL DEFAULT 'Hybrid'")
+        }
+    }
+
+    val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE jobs ADD COLUMN apply_url TEXT NOT NULL DEFAULT ''")
+            database.execSQL("ALTER TABLE jobs ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+            database.execSQL("ALTER TABLE jobs ADD COLUMN lat REAL")
+            database.execSQL("ALTER TABLE jobs ADD COLUMN lng REAL")
+            database.execSQL("ALTER TABLE jobs ADD COLUMN link_status TEXT NOT NULL DEFAULT 'VERIFIED'")
+            database.execSQL("ALTER TABLE jobs ADD COLUMN last_verified_at INTEGER")
+
+            database.execSQL("""
+                CREATE TABLE IF NOT EXISTS base_resumes (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    raw_text TEXT NOT NULL,
+                    confirmed_json TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+            """.trimIndent())
+
+            database.execSQL("""
+                CREATE TABLE IF NOT EXISTS github_repos (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    html_url TEXT NOT NULL,
+                    topics TEXT NOT NULL,
+                    languages TEXT NOT NULL,
+                    pushed_at TEXT,
+                    readme_excerpt TEXT,
+                    etag TEXT,
+                    cached_at INTEGER NOT NULL
+                )
+            """.trimIndent())
         }
     }
 

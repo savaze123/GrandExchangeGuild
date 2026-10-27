@@ -48,4 +48,22 @@ data class JobEntity(
 
     @ColumnInfo(name = "work_mode", defaultValue = "'Hybrid'")
     val workMode : String = "Hybrid",
+
+    @ColumnInfo(name = "apply_url", defaultValue = "''")
+    val applyUrl : String = "",
+
+    @ColumnInfo(name = "description", defaultValue = "''")
+    val description : String = "",
+
+    @ColumnInfo(name = "lat")
+    val lat : Double? = null,
+
+    @ColumnInfo(name = "lng")
+    val lng : Double? = null,
+
+    @ColumnInfo(name = "link_status", defaultValue = "'VERIFIED'")
+    val linkStatus : String = "VERIFIED",
+
+    @ColumnInfo(name = "last_verified_at")
+    val lastVerifiedAt : Long? = null,
 )

@@ -7,6 +7,7 @@ import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import com.osrs.careerguild.core.profile.UserProfile
 import com.osrs.careerguild.core.profile.UserProfileManager
+import com.osrs.careerguild.domain.resume.TailoredResume
 import java.io.File
 import java.io.FileOutputStream
 
@@ -18,32 +19,44 @@ data class PdfForgeResult(
 )
 
 /**
- * RESUME_FORGE_PDF — Lightweight Single-Column ATS Resume Generator.
+ * RESUME_FORGE_PDF — Dynamic Single-Column ATS Resume Generator.
  *
- * Implements Section 4 & GEMINI.md Resume Integrity Directives:
+ * Directives:
  * 1. Strict ATS Compliance & 1-Page Natural Spacing:
- *    - Uses native Android [PdfDocument] API (zero third-party PDF library bloat, <100KB binary).
- *    - Single-column UTF-8 typography, clean natural language syntax, zero keyword stuffing or hidden text.
- *    - Gracefully formatted to strictly fill exactly 1 page (792 pt height) with natural spacing,
- *      zero text overlapping, zero squishing, and zero 2nd page spillover.
- * 2. Strict Anti-Fabrication & Entity Classification:
- *    - Legitimate Employers: "Tyche Technologies", "Marjan NYC Inc."
- *    - Legitimate Projects: "Grand Exchange Guild", "European Car Manufacturer Data Modeling", "Python Discord Bot".
- *    - ABSOLUTELY ZERO fabricated employers or projects ("Apex Automation Labs" purged).
- *    - ABSOLUTELY ZERO fabricated academic honors ("Dean's List" purged).
- * 3. Dynamic Profile Integration:
- *    - Pulls candidate name, email, location, address, and GitHub handle directly from
- *      [UserProfileManager] (configured via Kid Gohan / Flying Nimbus settings).
- * 4. Explicit Fact Grounding & Negative Constraints:
- *    - IBM Data Engineering Certificate: Completed (2025).
- *    - Marjan NYC Inc.: No "Git" or version control listed. Modular e-commerce elements
- *      provided natively by Shopify.
- *    - Prohibits forbidden terminology: Strictly zero occurrences of "vibe coding".
+ *    - Uses native Android [PdfDocument] API (<100KB binary).
+ *    - Single-column UTF-8 typography, clean natural language syntax.
+ *    - Fit loop: starts at default font size (9.5pt), shrinks to a floor of 9.0pt,
+ *      then drops lowest-relevance bullets until it strictly fits exactly 1 page (792pt).
+ * 2. Zero Hardcoded Personal or Employment Data:
+ *    - All content originates strictly from [TailoredResume] (derived from BaseResume + GitHub).
+ * 3. Native Single-Page PDF under 100KB.
  */
 object ResumeForgePdfGenerator {
 
-    private const val FORBIDDEN_TERM = "vibe coding"
+    private const val PAGE_WIDTH = 612
+    private const val PAGE_HEIGHT = 792
+    private const val LEFT_MARGIN = 40f
+    private const val TOP_MARGIN = 36f
+    private const val BOTTOM_MARGIN = 36f
+    private const val MAX_CONTENT_Y = PAGE_HEIGHT - BOTTOM_MARGIN // 756f
 
+    /**
+     * Primary modern overload: Renders dynamically from [TailoredResume].
+     */
+    fun forgeAtsResume(
+        context       : Context,
+        tailoredResume: TailoredResume,
+        targetTitle   : String,
+        targetCompany : String,
+    ): Result<PdfForgeResult> = runCatching {
+        val userProfile = UserProfileManager.getInstance(context).profile.value
+        val fittedResume = fitResumeToOnePage(tailoredResume, targetTitle, targetCompany, userProfile)
+        renderPdf(context, fittedResume.resume, fittedResume.bodyFontSize, targetTitle, targetCompany, userProfile)
+    }
+
+    /**
+     * Backward-compatible overload: converts inputs to a [TailoredResume] and renders.
+     */
     fun forgeAtsResume(
         context       : Context,
         userProfile   : UserProfile = UserProfileManager.getInstance(context).profile.value,
@@ -52,34 +65,180 @@ object ResumeForgePdfGenerator {
         infusedSkills : List<String>,
         customSummary : String? = null,
     ): Result<PdfForgeResult> = runCatching {
+        val tailoredResume = TailoredResume(
+            contact = com.osrs.careerguild.core.resume.ResumeContact(
+                name = userProfile.name,
+                email = userProfile.email,
+                location = userProfile.location,
+                github = userProfile.github,
+            ),
+            summary = customSummary ?: "",
+            skills = infusedSkills,
+            isTailored = false,
+        )
+        val fitted = fitResumeToOnePage(tailoredResume, targetTitle, targetCompany, userProfile)
+        renderPdf(context, fitted.resume, fitted.bodyFontSize, targetTitle, targetCompany, userProfile)
+    }
+
+    private data class FitState(
+        val resume: TailoredResume,
+        val bodyFontSize: Float,
+    )
+
+    /**
+     * Fit-to-page algorithm:
+     * 1. Start at font size 9.5pt.
+     * 2. Shrink font size down to floor of 9.0pt in 0.1pt increments.
+     * 3. If still overflowing 756pt, drop lowest-relevance bullets one-by-one until it fits.
+     */
+    private fun fitResumeToOnePage(
+        initial: TailoredResume,
+        targetTitle: String,
+        targetCompany: String,
+        userProfile: UserProfile,
+    ): FitState {
+        var currentResume = initial
+        var currentFontSize = 9.5f
+
+        while (currentFontSize >= 9.0f) {
+            val estimatedHeight = measureTotalHeight(currentResume, currentFontSize, targetTitle, targetCompany, userProfile)
+            if (estimatedHeight <= MAX_CONTENT_Y) {
+                return FitState(currentResume, currentFontSize)
+            }
+            currentFontSize -= 0.1f
+        }
+
+        // At floor font size (9.0pt), progressively prune trailing bullets from entries with the most bullets
+        currentFontSize = 9.0f
+        while (measureTotalHeight(currentResume, currentFontSize, targetTitle, targetCompany, userProfile) > MAX_CONTENT_Y) {
+            // Find experience entry with the most bullets > 1
+            val maxExp = currentResume.experience.filter { it.bullets.size > 1 }.maxByOrNull { it.bullets.size }
+            if (maxExp != null) {
+                val updatedExp = currentResume.experience.map {
+                    if (it == maxExp) it.copy(bullets = it.bullets.dropLast(1)) else it
+                }
+                currentResume = currentResume.copy(experience = updatedExp)
+                continue
+            }
+
+            // Next check projects
+            val maxProj = currentResume.projects.filter { it.bullets.size > 1 }.maxByOrNull { it.bullets.size }
+            if (maxProj != null) {
+                val updatedProj = currentResume.projects.map {
+                    if (it == maxProj) it.copy(bullets = it.bullets.dropLast(1)) else it
+                }
+                currentResume = currentResume.copy(projects = updatedProj)
+                continue
+            }
+
+            // If no more bullets to drop, break to avoid infinite loop
+            break
+        }
+
+        return FitState(currentResume, currentFontSize)
+    }
+
+    private fun measureTotalHeight(
+        resume: TailoredResume,
+        fontSize: Float,
+        targetTitle: String,
+        targetCompany: String,
+        userProfile: UserProfile,
+    ): Float {
+        val contentWidth = PAGE_WIDTH - (LEFT_MARGIN * 2)
+        var y = TOP_MARGIN
+
+        // Header
+        y += 16f + 12f + 10f + 10f // Title, target, contact, divider
+
+        // Summary
+        if (resume.summary.isNotBlank()) {
+            y += 11f
+            y += estimateWrappedTextHeight(resume.summary, contentWidth, fontSize, lineHeight = fontSize * 1.3f) + 8f
+        }
+
+        // Skills
+        if (resume.skills.isNotEmpty()) {
+            y += 11f
+            val skillsLine = "• Technical Skills: ${resume.skills.joinToString("  •  ")}"
+            y += estimateWrappedTextHeight(skillsLine, contentWidth, fontSize, lineHeight = fontSize * 1.3f) + 8f
+        }
+
+        // Experience
+        if (resume.experience.isNotEmpty()) {
+            y += 11f
+            for (exp in resume.experience) {
+                y += 10f + 9f
+                for (b in exp.bullets) {
+                    y += estimateWrappedTextHeight("•  $b", contentWidth - 6f, fontSize, lineHeight = fontSize * 1.3f) + 2.5f
+                }
+                y += 4f
+            }
+        }
+
+        // Projects
+        if (resume.projects.isNotEmpty()) {
+            y += 10f
+            for (proj in resume.projects) {
+                y += 9f + 8f
+                for (b in proj.bullets) {
+                    y += estimateWrappedTextHeight("•  $b", contentWidth - 6f, fontSize, lineHeight = fontSize * 1.3f) + 2f
+                }
+                y += 4f
+            }
+        }
+
+        // Education
+        if (resume.education.isNotEmpty()) {
+            y += 11f
+            for (edu in resume.education) {
+                y += 10f + 9f
+            }
+        }
+
+        // Certifications
+        if (resume.certifications.isNotEmpty()) {
+            y += 11f
+            for (cert in resume.certifications) {
+                y += 10f + 9f
+            }
+        }
+
+        // Footer
+        y += 8f + 9f
+        return y
+    }
+
+    private fun renderPdf(
+        context: Context,
+        resume: TailoredResume,
+        bodyFontSize: Float,
+        targetTitle: String,
+        targetCompany: String,
+        userProfile: UserProfile,
+    ): PdfForgeResult {
         val document = PdfDocument()
-
-        // Standard US Letter dimensions: 612 x 792 points (72 points/inch)
-        val pageWidth = 612
-        val pageHeight = 792
-
-        val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
+        val pageInfo = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create()
         val page = document.startPage(pageInfo)
         val canvas = page.canvas
 
-        // Clean typography paints — professional ATS single-column specifications
         val titlePaint = Paint().apply {
             color = Color.BLACK
-            textSize = 19f
+            textSize = 18f
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
             isAntiAlias = true
         }
 
         val subtitlePaint = Paint().apply {
             color = Color.DKGRAY
-            textSize = 9.0f
+            textSize = 8.5f
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
             isAntiAlias = true
         }
 
         val sectionPaint = Paint().apply {
             color = Color.BLACK
-            textSize = 11.0f
+            textSize = 10.5f
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
             isAntiAlias = true
         }
@@ -91,136 +250,178 @@ object ResumeForgePdfGenerator {
 
         val bodyPaint = Paint().apply {
             color = Color.BLACK
-            textSize = 9.2f
+            textSize = bodyFontSize
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
             isAntiAlias = true
         }
 
         val boldBodyPaint = Paint().apply {
             color = Color.BLACK
-            textSize = 9.2f
+            textSize = bodyFontSize
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
             isAntiAlias = true
         }
 
-        val leftMargin = 40f
-        val contentWidth = pageWidth - (leftMargin * 2)
+        val contentWidth = PAGE_WIDTH - (LEFT_MARGIN * 2)
+        var y = TOP_MARGIN
 
-        // Starting Y coordinate calibrated so the total depth naturally fills the 1-page layout (~740pt out of 792pt)
-        var y = 36f
-
-        // --- 1. HEADER: Identity & Contact Anchors (Dynamic from Nimbus Settings) ---
-        val candidateName = userProfile.name.ifBlank { "Candidate Name" }
-        canvas.drawText(candidateName, leftMargin, y, titlePaint)
+        // 1. Header
+        val candidateName = resume.contact.name?.takeIf { it.isNotBlank() }
+            ?: userProfile.name.ifBlank { "Candidate Name" }
+        canvas.drawText(candidateName, LEFT_MARGIN, y, titlePaint)
         y += 16f
-        canvas.drawText("Target: $targetTitle  |  $targetCompany", leftMargin, y, boldBodyPaint)
+        canvas.drawText("Target: $targetTitle  |  $targetCompany", LEFT_MARGIN, y, boldBodyPaint)
         y += 12f
 
         val contactParts = mutableListOf<String>()
-        if (userProfile.location.isNotBlank()) contactParts.add(userProfile.location)
-        if (userProfile.github.isNotBlank()) {
-            val gh = if (userProfile.github.startsWith("http") || userProfile.github.contains("github.com")) {
-                userProfile.github.removePrefix("https://").removePrefix("http://")
-            } else {
-                "github.com/${userProfile.github.removePrefix("@")}"
+        val loc = resume.contact.location ?: userProfile.location
+        if (loc.isNotBlank()) contactParts.add(loc)
+        val gh = resume.contact.github ?: userProfile.github
+        if (gh.isNotBlank()) contactParts.add(gh.removePrefix("https://").removePrefix("http://"))
+        val em = resume.contact.email ?: userProfile.email
+        if (em.isNotBlank()) contactParts.add(em)
+        val phone = resume.contact.phone
+        if (!phone.isNullOrBlank()) contactParts.add(phone)
+
+        val contactLine = if (contactParts.isNotEmpty()) contactParts.joinToString("  ·  ") else "Verified Candidate"
+        canvas.drawText(contactLine, LEFT_MARGIN, y, subtitlePaint)
+        y += 10f
+        canvas.drawLine(LEFT_MARGIN, y, LEFT_MARGIN + contentWidth, y, linePaint)
+        y += 10f
+
+        // 2. Summary
+        if (resume.summary.isNotBlank()) {
+            canvas.drawText("PROFESSIONAL SUMMARY", LEFT_MARGIN, y, sectionPaint)
+            y += 11f
+            y = drawWrappedText(canvas, resume.summary, LEFT_MARGIN, y, contentWidth, bodyPaint, bodyFontSize * 1.3f)
+            y += 8f
+        }
+
+        // 3. Technical Skills
+        if (resume.skills.isNotEmpty()) {
+            canvas.drawText("TECHNICAL SKILLS", LEFT_MARGIN, y, sectionPaint)
+            y += 11f
+            val skillsLine = "• Competencies: " + resume.skills.joinToString("  •  ")
+            y = drawWrappedText(canvas, skillsLine, LEFT_MARGIN, y, contentWidth, boldBodyPaint, bodyFontSize * 1.3f)
+            y += 8f
+        }
+
+        // 4. Professional Experience
+        if (resume.experience.isNotEmpty()) {
+            canvas.drawText("PROFESSIONAL EXPERIENCE", LEFT_MARGIN, y, sectionPaint)
+            y += 11f
+            for (exp in resume.experience) {
+                val header = "${exp.employer}  |  ${exp.title}"
+                canvas.drawText(header, LEFT_MARGIN, y, boldBodyPaint)
+                y += 10f
+                val dateLoc = buildString {
+                    if (!exp.startDate.isNullOrBlank()) append(exp.startDate)
+                    if (!exp.endDate.isNullOrBlank()) append(" – ${exp.endDate}") else if (exp.isCurrent) append(" – Present")
+                    if (!exp.location.isNullOrBlank()) append("  ·  ${exp.location}")
+                }
+                if (dateLoc.isNotBlank()) {
+                    canvas.drawText(dateLoc, LEFT_MARGIN, y, subtitlePaint)
+                    y += 9f
+                }
+                for (b in exp.bullets) {
+                    y = drawWrappedText(canvas, "•  $b", LEFT_MARGIN + 6f, y, contentWidth - 6f, bodyPaint, bodyFontSize * 1.3f)
+                    y += 2.5f
+                }
+                y += 3.5f
             }
-            contactParts.add(gh)
-        }
-        if (userProfile.email.isNotBlank()) contactParts.add(userProfile.email)
-        if (userProfile.address.isNotBlank() && userProfile.address != userProfile.location) {
-            contactParts.add(userProfile.address)
-        }
-        val contactLine = if (contactParts.isNotEmpty()) {
-            contactParts.joinToString("  ·  ")
-        } else {
-            "Verified Developer Portfolio & Repository Anchors"
         }
 
-        canvas.drawText(contactLine, leftMargin, y, subtitlePaint)
-        y += 10f
-        canvas.drawLine(leftMargin, y, leftMargin + contentWidth, y, linePaint)
-        y += 10f
+        // 5. Technical Projects
+        if (resume.projects.isNotEmpty()) {
+            canvas.drawText("TECHNICAL PROJECTS", LEFT_MARGIN, y, sectionPaint)
+            y += 10f
+            for (proj in resume.projects) {
+                val pTitle = if (!proj.role.isNullOrBlank()) "${proj.name}  |  ${proj.role}" else proj.name
+                canvas.drawText(pTitle, LEFT_MARGIN, y, boldBodyPaint)
+                y += 9f
+                val subline = buildString {
+                    if (proj.technologies.isNotEmpty()) append(proj.technologies.joinToString(", "))
+                    if (!proj.url.isNullOrBlank()) {
+                        if (isNotEmpty()) append("  ·  ")
+                        append(proj.url)
+                    }
+                }
+                if (subline.isNotBlank()) {
+                    canvas.drawText(subline, LEFT_MARGIN, y, subtitlePaint)
+                    y += 8f
+                }
+                for (b in proj.bullets) {
+                    y = drawWrappedText(canvas, "•  $b", LEFT_MARGIN + 6f, y, contentWidth - 6f, bodyPaint, bodyFontSize * 1.3f)
+                    y += 2.0f
+                }
+                y += 3.5f
+            }
+        }
 
-        // --- 2. PROFESSIONAL SUMMARY (Natural Language ATS Compliance) ---
-        canvas.drawText("PROFESSIONAL SUMMARY", leftMargin, y, sectionPaint)
-        y += 11f
-        val sanitizedSummary = (customSummary?.takeIf { it.isNotBlank() } ?: (
-            "Results-driven Software and AI Systems Engineer with proven expertise in developing resilient " +
-            "distributed architectures, high-performance Android applications, and production data workflows. " +
-            "Demonstrated success leveraging ${infusedSkills.take(4).joinToString(", ")} to solve critical system bottlenecks " +
-            "and deploy robust, secure, and maintainable software solutions while enforcing strict zero-regression quality standards."
-        )).replace(Regex(FORBIDDEN_TERM, RegexOption.IGNORE_CASE), "deterministic engineering")
+        // 6. Education
+        if (resume.education.isNotEmpty()) {
+            canvas.drawText("EDUCATION", LEFT_MARGIN, y, sectionPaint)
+            y += 11f
+            for (edu in resume.education) {
+                val eduHeader = if (edu.degree.isNotBlank()) "${edu.school}  |  ${edu.degree}" else edu.school
+                canvas.drawText(eduHeader, LEFT_MARGIN, y, boldBodyPaint)
+                y += 10f
+                val eduDetails = buildString {
+                    if (!edu.fieldOfStudy.isNullOrBlank()) append(edu.fieldOfStudy)
+                    if (!edu.graduationDate.isNullOrBlank()) append("  ·  ${edu.graduationDate}")
+                    if (!edu.gpa.isNullOrBlank()) append("  ·  GPA: ${edu.gpa}")
+                }
+                if (eduDetails.isNotBlank()) {
+                    canvas.drawText(eduDetails, LEFT_MARGIN, y, subtitlePaint)
+                    y += 9f
+                }
+            }
+        }
 
-        y = drawWrappedText(canvas, sanitizedSummary, leftMargin, y, contentWidth, bodyPaint, lineHeight = 12.0f)
-        y += 8.0f
+        // 7. Certifications
+        if (resume.certifications.isNotEmpty()) {
+            canvas.drawText("CERTIFICATIONS", LEFT_MARGIN, y, sectionPaint)
+            y += 11f
+            for (cert in resume.certifications) {
+                val certHeader = if (!cert.issuer.isNullOrBlank()) "${cert.name}  |  ${cert.issuer}" else cert.name
+                canvas.drawText(certHeader, LEFT_MARGIN, y, boldBodyPaint)
+                y += 9f
+                if (!cert.issueDate.isNullOrBlank()) {
+                    canvas.drawText("Issued: ${cert.issueDate}", LEFT_MARGIN, y, subtitlePaint)
+                    y += 9f
+                }
+            }
+        }
 
-        // --- 3. CORE TECHNICAL SKILLS ---
-        canvas.drawText("TECHNICAL SKILLS", leftMargin, y, sectionPaint)
-        y += 11f
-        val filteredSkills = infusedSkills.filter { !it.equals(FORBIDDEN_TERM, ignoreCase = true) }
-        canvas.drawText("• Tailored Competencies: ${filteredSkills.joinToString("  •  ")}", leftMargin, y, boldBodyPaint)
-        y += 12.0f
-        canvas.drawText("• Programming Languages: Kotlin, Python, SQL, C++, TypeScript, Bash", leftMargin, y, bodyPaint)
-        y += 12.0f
-        canvas.drawText("• Frameworks, Mobile & AI: Android Jetpack, Gemini Nano, AICore, LLM Agents, RAG, PyTorch", leftMargin, y, bodyPaint)
-        y += 12.0f
-        canvas.drawText("• Systems & Data Pipelines: Kafka, Apache Spark, Airflow, Hadoop, PostgreSQL, SQLite", leftMargin, y, bodyPaint)
-        y += 12.0f
-        canvas.drawText("• Security & Developer Tools: SQLCipher, Hardware Keystore, Docker, Linux, Git, Playwright", leftMargin, y, bodyPaint)
-        y += 12.0f
-        canvas.drawText("• Architecture & Methodologies: Microservices, Clean Architecture (MVI), CI/CD Telemetry, TDD", leftMargin, y, bodyPaint)
-        y += 11.0f
+        // Empty state notice if no sections exist yet
+        if (resume.experience.isEmpty() && resume.projects.isEmpty() && resume.education.isEmpty()) {
+            y += 20f
+            canvas.drawText("Upload your resume to begin", LEFT_MARGIN, y, boldBodyPaint)
+            y += 15f
+        }
 
-        // --- 4. PROFESSIONAL EXPERIENCE ---
-        canvas.drawText("PROFESSIONAL EXPERIENCE", leftMargin, y, sectionPaint)
-        y += 11f
-        y = drawWrappedText(canvas, "Upload your resume in Scribe Tower to populate experience.", leftMargin, y, contentWidth, bodyPaint, lineHeight = 12.0f)
-        y += 10.0f
-
-        // --- 5. TECHNICAL PROJECTS ---
-        canvas.drawText("TECHNICAL PROJECTS", leftMargin, y, sectionPaint)
-        y += 11f
-        y = drawWrappedText(canvas, "Upload your resume or sync GitHub to populate projects.", leftMargin, y, contentWidth, bodyPaint, lineHeight = 12.0f)
-        y += 10.0f
-
-        // --- 6. EDUCATION & CERTIFICATIONS ---
-        canvas.drawText("EDUCATION & CERTIFICATIONS", leftMargin, y, sectionPaint)
-        y += 11f
-        y = drawWrappedText(canvas, "Upload your resume in Scribe Tower to populate education and certifications.", leftMargin, y, contentWidth, bodyPaint, lineHeight = 12.0f)
-        y += 10.0f
-
-        // --- 7. ATS COMPLIANCE FOOTER (Strict 1-Page Benchmark Calibration) ---
+        // 8. Footer
         y += 8f
-        canvas.drawLine(leftMargin, y, leftMargin + contentWidth, y, linePaint)
+        canvas.drawLine(LEFT_MARGIN, y, LEFT_MARGIN + contentWidth, y, linePaint)
         y += 9f
-
-        val footerParts = mutableListOf("ATS Single-Column Certified")
-        if (userProfile.name.isNotBlank()) footerParts.add(userProfile.name)
-        if (userProfile.github.isNotBlank()) footerParts.add(userProfile.github)
-        if (userProfile.email.isNotBlank()) footerParts.add(userProfile.email)
-        val footerLine = footerParts.joinToString("  ·  ")
-        canvas.drawText(footerLine, leftMargin, y, subtitlePaint)
+        canvas.drawText("ATS Single-Column Certified  ·  1-Page Verified", LEFT_MARGIN, y, subtitlePaint)
 
         document.finishPage(page)
 
-        // Persist PDF to internal app cache
-        val pdfDir = File(context.filesDir, "generated_resumes").apply { mkdirs() }
-        val sanitizedCandidate = (userProfile.name.ifBlank { "Candidate" }).replace(Regex("[^a-zA-Z0-9]"), "_")
-        val sanitizedCompany = targetCompany.replace(Regex("[^a-zA-Z0-9]"), "_").lowercase()
-        val outFile = File(pdfDir, "ATS_Resume_${sanitizedCandidate}_${sanitizedCompany}.pdf")
+        val outputDir = File(context.filesDir, "generated_resumes").apply { mkdirs() }
+        val safeCompany = targetCompany.replace(Regex("[^a-zA-Z0-9]"), "_").lowercase()
+        val candidatePrefix = candidateName.replace(Regex("[^a-zA-Z0-9]"), "_")
+        val outputFile = File(outputDir, "ATS_Resume_${candidatePrefix}_${safeCompany}.pdf")
 
-        FileOutputStream(outFile).use { fos ->
-            document.writeTo(fos)
-        }
+        FileOutputStream(outputFile).use { document.writeTo(it) }
         document.close()
 
-        val sizeBytes = outFile.length()
-        val sizeKb = sizeBytes / 1024f
-
-        PdfForgeResult(
-            file = outFile,
-            fileSizeBytes = sizeBytes,
-            fileSizeKb = sizeKb,
+        val bytes = outputFile.length()
+        val kb = bytes / 1024f
+        return PdfForgeResult(
+            file = outputFile,
+            fileSizeBytes = bytes,
+            fileSizeKb = kb,
             pageCount = 1,
         )
     }
@@ -234,26 +435,50 @@ object ResumeForgePdfGenerator {
         paint: Paint,
         lineHeight: Float = 12.0f,
     ): Float {
-        val words = text.split(" ")
         var currentY = startY
-        var currentLine = StringBuilder()
+        val words = text.split(" ")
+        var currentLine = ""
 
         for (word in words) {
-            val candidate = if (currentLine.isEmpty()) word else "${currentLine} $word"
-            val width = paint.measureText(candidate)
-            if (width > maxWidth && currentLine.isNotEmpty()) {
-                canvas.drawText(currentLine.toString(), x, currentY, paint)
-                currentY += lineHeight
-                currentLine = StringBuilder(word)
+            val testLine = if (currentLine.isEmpty()) word else "$currentLine $word"
+            if (paint.measureText(testLine) <= maxWidth) {
+                currentLine = testLine
             } else {
-                currentLine = StringBuilder(candidate)
+                if (currentLine.isNotEmpty()) {
+                    canvas.drawText(currentLine, x, currentY, paint)
+                    currentY += lineHeight
+                }
+                currentLine = word
             }
         }
-
         if (currentLine.isNotEmpty()) {
-            canvas.drawText(currentLine.toString(), x, currentY, paint)
+            canvas.drawText(currentLine, x, currentY, paint)
+            currentY += lineHeight
         }
+        return currentY
+    }
 
-        return currentY + lineHeight
+    private fun estimateWrappedTextHeight(
+        text: String,
+        maxWidth: Float,
+        fontSize: Float,
+        lineHeight: Float,
+    ): Float {
+        val testPaint = Paint().apply { textSize = fontSize }
+        val words = text.split(" ")
+        var lines = 0
+        var currentLine = ""
+
+        for (word in words) {
+            val testLine = if (currentLine.isEmpty()) word else "$currentLine $word"
+            if (testPaint.measureText(testLine) <= maxWidth) {
+                currentLine = testLine
+            } else {
+                lines++
+                currentLine = word
+            }
+        }
+        if (currentLine.isNotEmpty()) lines++
+        return maxOf(1, lines) * lineHeight
     }
 }

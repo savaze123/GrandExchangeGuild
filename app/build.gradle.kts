@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -60,11 +62,41 @@ android {
 
     // GEMINI_API_KEY: add to local.properties (never commit the key)
     //   GEMINI_API_KEY=your_key_here
+    val localProps = Properties().apply {
+        val f = rootProject.file("local.properties")
+        if (f.exists()) {
+            f.inputStream().use { load(it) }
+        }
+    }
+    fun getLocalOrProjectProp(key: String): String {
+        return localProps.getProperty(key) ?: (project.findProperty(key) as? String) ?: ""
+    }
+
     defaultConfig {
         buildConfigField(
             "String",
             "GEMINI_API_KEY",
-            "\"${project.findProperty("GEMINI_API_KEY") ?: ""}\"",
+            "\"${getLocalOrProjectProp("GEMINI_API_KEY")}\"",
+        )
+        buildConfigField(
+            "String",
+            "GITHUB_TOKEN",
+            "\"${getLocalOrProjectProp("GITHUB_TOKEN")}\"",
+        )
+        buildConfigField(
+            "String",
+            "ADZUNA_APP_ID",
+            "\"${getLocalOrProjectProp("ADZUNA_APP_ID")}\"",
+        )
+        buildConfigField(
+            "String",
+            "ADZUNA_APP_KEY",
+            "\"${getLocalOrProjectProp("ADZUNA_APP_KEY")}\"",
+        )
+        buildConfigField(
+            "String",
+            "RAPIDAPI_KEY",
+            "\"${getLocalOrProjectProp("RAPIDAPI_KEY")}\"",
         )
     }
 
@@ -119,6 +151,7 @@ dependencies {
 
     // AI & Perception (Google ML Kit Offline Text Recognition v2)
     implementation(libs.mlkit.text.recognition)
+    implementation(libs.pdfbox.android)
 
     // TRAJECTORY_SCORER (Gemini 1.5 Flash via Google AI SDK)
     implementation(libs.generativeai)

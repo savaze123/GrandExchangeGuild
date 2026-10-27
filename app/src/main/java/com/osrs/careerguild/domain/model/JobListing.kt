@@ -30,4 +30,9 @@ data class JobListing(
     val description   : String         = "",
     val location      : String         = "New York, NY",
     val workMode      : String         = "Hybrid",
+    val applyUrl      : String         = atsUrl,
+    val lat           : Double?        = null,
+    val lng           : Double?        = null,
+    val linkStatus    : String         = "VERIFIED",
+    val lastVerifiedAt: Long?          = null,
 )

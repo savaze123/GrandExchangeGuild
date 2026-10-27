@@ -53,6 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,9 +68,14 @@ import com.osrs.careerguild.core.pdf.PdfForgeResult
 import com.osrs.careerguild.core.pdf.ResumeForgePdfGenerator
 import com.osrs.careerguild.core.profile.UserProfile
 import com.osrs.careerguild.core.profile.UserProfileManager
+import com.osrs.careerguild.core.resume.BaseResume
+import com.osrs.careerguild.di.LocalAppContainer
 import com.osrs.careerguild.domain.model.GuildBuilding
 import com.osrs.careerguild.domain.model.JobListing
+import com.osrs.careerguild.domain.resume.TailoredResume
+import com.osrs.careerguild.data.local.entity.toDomain
 import com.osrs.careerguild.presentation.common.InfoTooltipTrigger
+import kotlinx.coroutines.launch
 
 private val OsrsGold       = Color(0xFFFFD700)
 private val OsrsStone      = Color(0xFF3D2B1F)
@@ -103,6 +109,10 @@ fun ScribeTowerScreen(
     onSendToCourier     : (JobListing, String) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val appContainer = LocalAppContainer.current
+    val baseResumeRepo = appContainer.baseResumeRepository
+    val baseResume by baseResumeRepo.observeBaseResume().collectAsState(initial = null)
 
     var selectedJob by remember(initialJob) {
         mutableStateOf(
@@ -126,24 +136,43 @@ fun ScribeTowerScreen(
     val infusedSkills = remember { mutableStateListOf<String>() }
     var masterResumeName by remember { mutableStateOf("Master_Resume.pdf") }
     var isForging by remember { mutableStateOf(false) }
+    var isExtracting by remember { mutableStateOf(false) }
     var forgeResult by remember { mutableStateOf<PdfForgeResult?>(null) }
     var customNotes by remember { mutableStateOf("") }
 
-    LaunchedEffect(selectedJob, userProfile) {
+    var reviewRawText by remember { mutableStateOf<String?>(null) }
+    var reviewParsedResume by remember { mutableStateOf<BaseResume?>(null) }
+    var reviewDroppedItems by remember { mutableStateOf<List<String>>(emptyList()) }
+    var tailoredResume by remember { mutableStateOf<TailoredResume?>(null) }
+
+    LaunchedEffect(baseResume, selectedJob, userProfile, infusedSkills.toList(), customNotes) {
         infusedSkills.clear()
         val jobMatches = selectedJob.matchedSkills
         val initialSelection = if (jobMatches.isNotEmpty()) jobMatches else activeSkills.take(5)
         infusedSkills.addAll(initialSelection)
-        val res = ResumeForgePdfGenerator.forgeAtsResume(
-            context = context,
-            userProfile = userProfile,
-            targetTitle = selectedJob.title,
-            targetCompany = selectedJob.company,
-            infusedSkills = initialSelection,
-            customSummary = customNotes.takeIf { it.isNotBlank() },
-        )
-        android.util.Log.i("ScribeTower", "Automatic ATS PDF forge for ${selectedJob.company}: $res")
-        forgeResult = res.getOrNull()
+
+        val base = baseResume
+        if (base != null) {
+            val repos = appContainer.gitHubRepoDao.getAll()
+            val tailored = appContainer.resumeTailor.tailor(
+                jobDescription = selectedJob.description ?: "${selectedJob.title} at ${selectedJob.company}",
+                baseResume = base,
+                gitHubRepos = repos.map { it.toDomain() },
+            )
+            val finalTailored = if (customNotes.isNotBlank()) tailored.copy(summary = customNotes) else tailored
+            tailoredResume = finalTailored
+            val res = ResumeForgePdfGenerator.forgeAtsResume(
+                context = context,
+                tailoredResume = finalTailored,
+                targetTitle = selectedJob.title,
+                targetCompany = selectedJob.company,
+            )
+            android.util.Log.i("ScribeTower", "Automatic ATS PDF forge for ${selectedJob.company}: $res")
+            forgeResult = res.getOrNull()
+        } else {
+            tailoredResume = null
+            forgeResult = null
+        }
     }
 
     Column(
@@ -222,7 +251,24 @@ fun ScribeTowerScreen(
                 MasterResumeDropzoneCard(
                     currentFileName = masterResumeName,
                     userProfile = userProfile,
-                    onFileSelected = { masterResumeName = it },
+                    isExtracting = isExtracting,
+                    onFileSelected = { uri, name ->
+                        masterResumeName = name
+                        scope.launch {
+                            isExtracting = true
+                            try {
+                                val raw = appContainer.resumeTextExtractor.extractText(uri).getOrThrow()
+                                val structResult = appContainer.resumeStructurer.structure(raw).getOrThrow()
+                                reviewRawText = raw
+                                reviewParsedResume = structResult.resume
+                                reviewDroppedItems = structResult.droppedItems
+                            } catch (e: Exception) {
+                                android.util.Log.e("ScribeTower", "Error extracting resume", e)
+                            } finally {
+                                isExtracting = false
+                            }
+                        }
+                    },
                 )
             }
 
@@ -264,18 +310,24 @@ fun ScribeTowerScreen(
                     isForging = isForging,
                     forgeResult = forgeResult,
                     onForgePdf = {
-                        isForging = true
-                        val res = ResumeForgePdfGenerator.forgeAtsResume(
-                            context = context,
-                            userProfile = userProfile,
-                            targetTitle = selectedJob.title,
-                            targetCompany = selectedJob.company,
-                            infusedSkills = infusedSkills.toList(),
-                            customSummary = customNotes.takeIf { it.isNotBlank() },
-                        )
-                        android.util.Log.i("ScribeTower", "forgeAtsResume result: $res")
-                        forgeResult = res.getOrNull()
-                        isForging = false
+                        val currentTailored = tailoredResume
+                        if (currentTailored != null) {
+                            isForging = true
+                            scope.launch {
+                                try {
+                                    val res = ResumeForgePdfGenerator.forgeAtsResume(
+                                        context = context,
+                                        tailoredResume = currentTailored,
+                                        targetTitle = selectedJob.title,
+                                        targetCompany = selectedJob.company,
+                                    )
+                                    android.util.Log.i("ScribeTower", "forgeAtsResume result: $res")
+                                    forgeResult = res.getOrNull()
+                                } finally {
+                                    isForging = false
+                                }
+                            }
+                        }
                     },
                     onViewPdf = { file ->
                         val uri = FileProvider.getUriForFile(
@@ -296,19 +348,37 @@ fun ScribeTowerScreen(
                 )
             }
 
-            // 6. ATS Single-Column Live Parchment Preview (7/8 Page Density)
+            // 6. ATS Single-Column Live Parchment Preview (Shared Dynamic Model)
             item {
-                AtsParchmentPreview(
-                    job = selectedJob,
+                SharedAtsResumePreview(
+                    resume = tailoredResume ?: TailoredResume.empty(),
                     userProfile = userProfile,
-                    infusedSkills = infusedSkills,
-                    customSummary = customNotes,
-                    onCustomSummaryChange = { customNotes = it },
+                    targetTitle = selectedJob.title,
+                    targetCompany = selectedJob.company,
                 )
             }
 
             item { Spacer(modifier = Modifier.height(40.dp)) }
         }
+    }
+
+    if (reviewRawText != null && reviewParsedResume != null) {
+        ResumeReviewDialog(
+            rawText = reviewRawText!!,
+            initialResume = reviewParsedResume!!,
+            droppedItems = reviewDroppedItems,
+            onDismiss = {
+                reviewRawText = null
+                reviewParsedResume = null
+            },
+            onConfirm = { confirmedResume ->
+                scope.launch {
+                    baseResumeRepo.saveConfirmedResume(reviewRawText!!, confirmedResume)
+                    reviewRawText = null
+                    reviewParsedResume = null
+                }
+            }
+        )
     }
 }
 
@@ -319,7 +389,8 @@ fun ScribeTowerScreen(
 private fun MasterResumeDropzoneCard(
     currentFileName: String,
     userProfile: UserProfile,
-    onFileSelected: (String) -> Unit,
+    isExtracting: Boolean = false,
+    onFileSelected: (Uri, String) -> Unit,
 ) {
     val context = LocalContext.current
     val fileLauncher = rememberLauncherForActivityResult(
@@ -327,7 +398,7 @@ private fun MasterResumeDropzoneCard(
     ) { uri: Uri? ->
         uri?.let {
             val name = queryFileName(context, it) ?: "imported_master_resume.pdf"
-            onFileSelected(name)
+            onFileSelected(it, name)
         }
     }
 
@@ -418,20 +489,28 @@ private fun MasterResumeDropzoneCard(
                             color = OsrsTextDim,
                         )
                     }
-                    Button(
-                        onClick = {
-                            fileLauncher.launch(
-                                arrayOf(
-                                    "application/pdf",
-                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    if (isExtracting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = OsrsGold,
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Button(
+                            onClick = {
+                                fileLauncher.launch(
+                                    arrayOf(
+                                        "application/pdf",
+                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                    )
                                 )
-                            )
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = OsrsGold),
-                        shape = RoundedCornerShape(4.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    ) {
-                        Text("Browse", color = Color.Black, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = OsrsGold),
+                            shape = RoundedCornerShape(4.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        ) {
+                            Text("Browse", color = Color.Black, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                        }
                     }
                 }
             }

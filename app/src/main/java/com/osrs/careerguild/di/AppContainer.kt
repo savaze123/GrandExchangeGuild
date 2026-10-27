@@ -5,6 +5,10 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.osrs.careerguild.BuildConfig
 import com.osrs.careerguild.core.cli.CliDispatcher
 import com.osrs.careerguild.core.cli.CliParser
+import com.osrs.careerguild.core.resume.BaseResumeRepository
+import com.osrs.careerguild.core.resume.BaseResumeRepositoryImpl
+import com.osrs.careerguild.core.resume.ResumeStructurer
+import com.osrs.careerguild.core.resume.ResumeTextExtractor
 import com.osrs.careerguild.core.token.TokenGovernor
 import com.osrs.careerguild.data.remote.scraper.TechRadarScraperImpl
 import com.osrs.careerguild.data.repository.JobRepositoryImpl
@@ -60,13 +64,19 @@ class AppContainer(context: Context) {
     private val skillDao          = db.skillDao()
     private val jobDao            = db.jobDao()
     private val blockedCompanyDao = db.blockedCompanyDao()
+    private val baseResumeDao     = db.baseResumeDao()
+    val gitHubRepoDao             = db.gitHubRepoDao()
 
     // ---------------------------------------------------------------------------
     // Repositories (domain interfaces)
     // ---------------------------------------------------------------------------
 
-    val skillRepository = SkillRepositoryImpl(skillDao)
-    val jobRepository   = JobRepositoryImpl(jobDao, blockedCompanyDao)
+    val skillRepository      = SkillRepositoryImpl(skillDao)
+    val jobRepository        = JobRepositoryImpl(jobDao, blockedCompanyDao)
+    val baseResumeRepository : BaseResumeRepository = BaseResumeRepositoryImpl(baseResumeDao)
+    val resumeTextExtractor  = ResumeTextExtractor(appContext)
+    val resumeStructurer     = ResumeStructurer(tokenGovernor)
+    val resumeTailor         = com.osrs.careerguild.domain.resume.ResumeTailor(tokenGovernor)
 
     // ---------------------------------------------------------------------------
     // Remote / Scraper
