@@ -310,22 +310,24 @@ fun ScribeTowerScreen(
                     isForging = isForging,
                     forgeResult = forgeResult,
                     onForgePdf = {
-                        val currentTailored = tailoredResume
-                        if (currentTailored != null) {
-                            isForging = true
-                            scope.launch {
-                                try {
-                                    val res = ResumeForgePdfGenerator.forgeAtsResume(
-                                        context = context,
-                                        tailoredResume = currentTailored,
-                                        targetTitle = selectedJob.title,
-                                        targetCompany = selectedJob.company,
-                                    )
-                                    android.util.Log.i("ScribeTower", "forgeAtsResume result: $res")
-                                    forgeResult = res.getOrNull()
-                                } finally {
-                                    isForging = false
-                                }
+                        val currentTailored = tailoredResume ?: TailoredResume(
+                            summary = customNotes.ifBlank { "Software & AI Systems Engineer" },
+                            skills = infusedSkills.toList(),
+                            isTailored = false,
+                        )
+                        isForging = true
+                        scope.launch {
+                            try {
+                                val res = ResumeForgePdfGenerator.forgeAtsResume(
+                                    context = context,
+                                    tailoredResume = currentTailored,
+                                    targetTitle = selectedJob.title,
+                                    targetCompany = selectedJob.company,
+                                )
+                                android.util.Log.i("ScribeTower", "forgeAtsResume result: $res")
+                                forgeResult = res.getOrNull()
+                            } finally {
+                                isForging = false
                             }
                         }
                     },
