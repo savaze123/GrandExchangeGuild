@@ -134,14 +134,88 @@ class SkillAltarViewModel(
     }
 
     fun removeSkill(name: String) {
+        val defaultTabs = listOf("AI & Agents", "Automation & Web", "Backend & Data")
+        val targetSkill = _uiState.value.skills.find { it.name.equals(name, ignoreCase = true) }
+        val parentCategory = targetSkill?.category
+
         viewModelScope.launch {
             removeSkill.invoke(name)
                 .onSuccess {
-                    _uiState.update { it.copy(successMessage = "'$name' removed.") }
+                    _uiState.update { state ->
+                        val remainingSkills = state.skills.filterNot { it.name.equals(name, ignoreCase = true) }
+                        val remainingInParent = if (parentCategory != null) {
+                            remainingSkills.count { it.category.equals(parentCategory, ignoreCase = true) }
+                        } else {
+                            1
+                        }
+                        val isCustomEmpty = parentCategory != null &&
+                            remainingInParent == 0 &&
+                            defaultTabs.none { it.equals(parentCategory, ignoreCase = true) }
+
+                        val updatedCustomCategories = if (isCustomEmpty) {
+                            state.customCategories.filterNot { it.equals(parentCategory, ignoreCase = true) }
+                        } else {
+                            state.customCategories
+                        }
+                        val updatedCategories = (defaultTabs + updatedCustomCategories + remainingSkills.map { it.category })
+                            .distinct()
+                            .filter { it != "Custom" || remainingSkills.any { s -> s.category == "Custom" } }
+                            .sorted()
+                        val updatedSelectedCategory = if (isCustomEmpty && state.selectedCategory.equals(parentCategory, ignoreCase = true)) {
+                            null
+                        } else {
+                            state.selectedCategory
+                        }
+                        val updatedAddCategory = if (isCustomEmpty && state.addSkillCategory.equals(parentCategory, ignoreCase = true)) {
+                            defaultTabs.first()
+                        } else {
+                            state.addSkillCategory
+                        }
+
+                        state.copy(
+                            skills           = remainingSkills,
+                            customCategories = updatedCustomCategories,
+                            categories       = updatedCategories,
+                            selectedCategory = updatedSelectedCategory,
+                            addSkillCategory = updatedAddCategory,
+                            successMessage   = if (isCustomEmpty) {
+                                "'$name' removed and empty category '$parentCategory' deleted."
+                            } else {
+                                "'$name' removed."
+                            },
+                        )
+                    }
                 }
                 .onFailure { e ->
                     _uiState.update { it.copy(error = "Remove failed: ${e.message}") }
                 }
+        }
+    }
+
+    fun removeCustomCategory(category: String) {
+        val defaultTabs = listOf("AI & Agents", "Automation & Web", "Backend & Data")
+        if (defaultTabs.any { it.equals(category, ignoreCase = true) }) return
+        viewModelScope.launch {
+            val skillsInCategory = _uiState.value.skills.filter { it.category.equals(category, ignoreCase = true) }
+            skillsInCategory.forEach { skill ->
+                removeSkill.invoke(skill.name)
+            }
+            _uiState.update { state ->
+                val remainingSkills = state.skills.filterNot { it.category.equals(category, ignoreCase = true) }
+                val updatedCustom = state.customCategories.filterNot { it.equals(category, ignoreCase = true) }
+                val updatedCategories = (defaultTabs + updatedCustom + remainingSkills.map { it.category })
+                    .distinct()
+                    .filter { it != "Custom" || remainingSkills.any { s -> s.category == "Custom" } }
+                    .sorted()
+                state.copy(
+                    skills           = remainingSkills,
+                    customCategories = updatedCustom,
+                    categories       = updatedCategories,
+                    selectedCategory = if (state.selectedCategory.equals(category, ignoreCase = true)) null else state.selectedCategory,
+                    addSkillCategory = if (state.addSkillCategory.equals(category, ignoreCase = true)) defaultTabs.first() else state.addSkillCategory,
+                    successMessage   = "Custom category '$category' removed.",
+                )
+            }
         }
     }
 

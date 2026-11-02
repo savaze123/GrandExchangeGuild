@@ -3,6 +3,7 @@ package com.osrs.careerguild.presentation.dashboard.bountyboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.osrs.careerguild.core.location.JobLocationUtils
+import com.osrs.careerguild.core.network.LinkValidator
 import com.osrs.careerguild.core.token.TokenGovernor
 import com.osrs.careerguild.domain.model.JobListing
 import com.osrs.careerguild.domain.model.Skill
@@ -11,14 +12,19 @@ import com.osrs.careerguild.domain.repository.SkillRepository
 import com.osrs.careerguild.domain.usecase.bountyboard.BlockCompanyUseCase
 import com.osrs.careerguild.domain.usecase.bountyboard.FetchAndScoreJobsUseCase
 import com.osrs.careerguild.domain.usecase.bountyboard.MarkAppliedUseCase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * MVI ViewModel for the Bounty Board screen.
@@ -53,27 +59,65 @@ class BountyBoardViewModel(
     private val _uiState = MutableStateFlow(BountyBoardUiState())
     val uiState: StateFlow<BountyBoardUiState> = _uiState.asStateFlow()
 
+    private val searchQueryFlow = MutableStateFlow("")
     private var cachedAllJobs: List<JobListing> = emptyList()
 
     init {
         observeJobs()
         observeActiveSkills()
+        observeSearchQuery()
         _uiState.update { it.copy(isGeminiAllowed = tokenGovernor.isGeminiAllowed) }
         viewModelScope.launch {
             refresh()
         }
     }
 
-    // ---------------------------------------------------------------------------
+    @OptIn(FlowPreview::class)
+    private fun observeSearchQuery() {
+        viewModelScope.launch {
+            searchQueryFlow
+                .debounce(150L)
+                .distinctUntilChanged()
+                .collectLatest { query ->
+                    val currentState = _uiState.value
+                    val filtered = withContext(Dispatchers.Default) {
+                        filterJobs(
+                            cachedAllJobs,
+                            query,
+                            currentState.activeSkills,
+                            currentState.zipCode,
+                            currentState.searchRadius,
+                            currentState.workMode,
+                            currentState.sortOption,
+                        )
+                    }
+                    _uiState.update { state ->
+                        state.copy(jobs = filtered)
+                    }
+                }
+        }
+    }
+
     // ---------------------------------------------------------------------------
     // Filtering & dynamic skill scoring logic
     // ---------------------------------------------------------------------------
 
     private fun enrichJobWithActiveSkills(job: JobListing, activeSkills: List<Skill>): JobListing {
         val active = activeSkills.filter { it.isActive }
-        if (active.isEmpty()) return job
+        val resolvedCoords = JobLocationUtils.resolveJobCoordinates(job.location)
+        val lat = job.lat ?: resolvedCoords.lat
+        val lng = job.lng ?: resolvedCoords.lon
+        val baseRequired = if (job.requiredSkills.isNotEmpty()) job.requiredSkills else job.matchedSkills
 
-        val searchableText = "${job.title} ${job.company} ${job.description} ${job.matchedSkills.joinToString(" ")}".lowercase()
+        if (active.isEmpty()) {
+            return job.copy(
+                lat = lat,
+                lng = lng,
+                requiredSkills = baseRequired,
+            )
+        }
+
+        val searchableText = "${job.title} ${job.company} ${job.description} ${baseRequired.joinToString(" ")}".lowercase()
         val matchingActive = active.filter { skill ->
             val sName = skill.name.lowercase()
             searchableText.contains(sName) ||
@@ -83,10 +127,21 @@ class BountyBoardViewModel(
             (sName.contains("docker") && searchableText.contains("docker"))
         }
 
-        val dynamicMatchedSkills = (matchingActive.map { it.name } + job.matchedSkills).distinct()
-        // Base match score: start from 58, award +8 for every matched user active skill, capped at 99
+        val dynamicMatchedSkills = (matchingActive.map { it.name } + baseRequired).distinct()
+        val intersectionRatio = if (baseRequired.isNotEmpty()) {
+            val matchedReqCount = baseRequired.count { req ->
+                val r = req.lowercase()
+                active.any { s -> s.name.lowercase().contains(r) || r.contains(s.name.lowercase()) }
+            }
+            (matchedReqCount.toDouble() / baseRequired.size.coerceAtLeast(1).toDouble()).coerceIn(0.0, 1.0)
+        } else {
+            (matchingActive.size.toDouble() / active.size.coerceAtLeast(1).toDouble()).coerceIn(0.0, 1.0)
+        }
+
+        // Composite skill match score: blends intersection percentage and matched active skill count (0-99%)
         val dynamicScore = if (matchingActive.isNotEmpty()) {
-            (58 + (matchingActive.size * 8)).coerceIn(60, 99)
+            val pctBonus = (intersectionRatio * 20).toInt()
+            (58 + (matchingActive.size * 7) + pctBonus).coerceIn(60, 99)
         } else {
             job.score.coerceIn(40, 75)
         }
@@ -94,6 +149,9 @@ class BountyBoardViewModel(
         return job.copy(
             score = dynamicScore,
             matchedSkills = dynamicMatchedSkills,
+            requiredSkills = dynamicMatchedSkills,
+            lat = lat,
+            lng = lng,
         )
     }
 
@@ -104,11 +162,13 @@ class BountyBoardViewModel(
         zipCode: String = _uiState.value.zipCode,
         radius: String = _uiState.value.searchRadius,
         workMode: String = _uiState.value.workMode,
+        sortOption: String = _uiState.value.sortOption,
     ): List<JobListing> {
         val q = query.trim()
         val activeSkillNames = activeSkills.filter { it.isActive }.map { it.name.lowercase() }
+        val effectiveZip = zipCode.ifBlank { "11581" }
 
-        return jobs
+        val filtered = jobs
             .map { enrichJobWithActiveSkills(it, activeSkills) }
             .filter { j ->
                 // Text search: matches title, company, or any matched skill tag
@@ -135,7 +195,7 @@ class BountyBoardViewModel(
                 val matchesRadius = JobLocationUtils.matchesRadius(
                     jobLocation = j.location,
                     workMode = j.workMode,
-                    userZip = zipCode.ifBlank { "11581" },
+                    userZip = effectiveZip,
                     searchRadius = radius,
                 )
 
@@ -146,12 +206,43 @@ class BountyBoardViewModel(
                     filterMode = workMode,
                 )
 
-                // Dead link suppression (Task 6)
-                val isNotDead = j.linkStatus != "DEAD"
+                // Strict ATS link requirement (Task 2: drop dead, seeded, or unverified links)
+                val directUrl = j.applyUrl.ifBlank { j.atsUrl }
+                val hasVerifiedDirectLink = j.linkStatus != "DEAD" &&
+                    j.linkStatus != "SEED" &&
+                    LinkValidator.isValidDirectAtsUrl(directUrl, j.linkStatus)
 
-                matchesQuery && matchesSkill && matchesRadius && matchesWorkMode && isNotDead
+                matchesQuery && matchesSkill && matchesRadius && matchesWorkMode && hasVerifiedDirectLink
             }
-            .sortedByDescending { it.score }
+
+        return when (sortOption) {
+            "Latest" -> filtered.sortedWith(
+                compareByDescending<JobListing> { it.timePosted }
+                    .thenByDescending { it.score }
+            )
+            "Closest" -> filtered.sortedWith(
+                compareBy<JobListing> { j ->
+                    JobLocationUtils.calculateJobDistanceMiles(
+                        jobLocation = j.location,
+                        userZip = effectiveZip,
+                        lat = j.lat,
+                        lng = j.lng,
+                    )
+                }.thenByDescending { it.score }
+            )
+            else -> filtered.sortedWith(
+                compareByDescending<JobListing> { it.score }
+                    .thenByDescending { it.timePosted }
+                    .thenBy { j ->
+                        JobLocationUtils.calculateJobDistanceMiles(
+                            jobLocation = j.location,
+                            userZip = effectiveZip,
+                            lat = j.lat,
+                            lng = j.lng,
+                        )
+                    }
+            )
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -168,7 +259,7 @@ class BountyBoardViewModel(
                     cachedAllJobs = jobs
                     _uiState.update { state ->
                         state.copy(
-                            jobs = filterJobs(cachedAllJobs, state.searchQuery, state.activeSkills, state.zipCode, state.searchRadius, state.workMode),
+                            jobs = filterJobs(cachedAllJobs, state.searchQuery, state.activeSkills, state.zipCode, state.searchRadius, state.workMode, state.sortOption),
                             isLoading = false,
                         )
                     }
@@ -190,7 +281,7 @@ class BountyBoardViewModel(
                         state.copy(
                             activeSkills = skills,
                             activeSkillNames = activeNames,
-                            jobs = filterJobs(cachedAllJobs, state.searchQuery, skills, state.zipCode, state.searchRadius, state.workMode),
+                            jobs = filterJobs(cachedAllJobs, state.searchQuery, skills, state.zipCode, state.searchRadius, state.workMode, state.sortOption),
                         )
                     }
                 }
@@ -207,23 +298,30 @@ class BountyBoardViewModel(
         viewModelScope.launch {
             android.util.Log.i("BountyBoardVM", "refresh() called on BountyBoardViewModel")
             val geminiAllowed = tokenGovernor.isGeminiAllowed
+            val previousCount = cachedAllJobs.size
             _uiState.update {
                 it.copy(
-                    isScraping     = true,
-                    isScoring      = false,
-                    error          = null,
+                    isScraping      = true,
+                    isScoring       = false,
+                    error           = null,
                     isGeminiAllowed = geminiAllowed,
+                    dataSourceMode  = "LIVE_FETCHING",
+                    lastSyncMessage = "Live Fetching ATS Feeds (Greenhouse · Lever · Ashby · Remotive · Arbeitnow)…",
                 )
             }
 
             val scoredCount = intArrayOf(0)
+            val totalQueued = intArrayOf(0)
             fetchAndScoreJobs(
                 onProgress = { current, total, title ->
                     scoredCount[0] = current
+                    totalQueued[0] = total
                     _uiState.update { state ->
                         state.copy(
                             isScraping      = false,
                             isScoring       = true,
+                            dataSourceMode  = "LIVE_FETCHING",
+                            lastSyncMessage = "Live Scoring $current/$total ATS Postings…",
                             scoringProgress = ScoringProgress(
                                 current         = current,
                                 total           = total,
@@ -239,6 +337,8 @@ class BountyBoardViewModel(
                         isScraping      = false,
                         isScoring       = false,
                         scoringProgress = null,
+                        dataSourceMode  = "OFFLINE_CACHE",
+                        lastSyncMessage = "Offline Cached Data (${it.jobs.size} verified quests in Room Vault)",
                         error           = e.message ?: "Scrape failed",
                     )
                 }
@@ -247,12 +347,22 @@ class BountyBoardViewModel(
                 if (geminiAllowed && scoredCount[0] > 0) {
                     tokenGovernor.recordScoringBatch(scoredCount[0])
                 }
+                val currentTotal = cachedAllJobs.size
+                val delta = (currentTotal - previousCount).coerceAtLeast(scoredCount[0])
+                val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
                 _uiState.update {
                     it.copy(
-                        isScraping      = false,
-                        isScoring       = false,
-                        scoringProgress = null,
-                        isGeminiAllowed = tokenGovernor.isGeminiAllowed,
+                        isScraping         = false,
+                        isScoring          = false,
+                        scoringProgress    = null,
+                        isGeminiAllowed    = tokenGovernor.isGeminiAllowed,
+                        dataSourceMode     = if (delta > 0 || currentTotal > 0) "LIVE_SYNCED" else "OFFLINE_CACHE",
+                        newJobsPulledCount = delta,
+                        lastSyncMessage    = if (delta > 0) {
+                            "Live Feed Synced at $timeStr (+$delta verified postings)"
+                        } else {
+                            "Live Feed Verified at $timeStr (${it.jobs.size} active postings · 0 new)"
+                        },
                     )
                 }
             }
@@ -265,11 +375,9 @@ class BountyBoardViewModel(
 
     fun search(query: String) {
         _uiState.update { state ->
-            state.copy(
-                searchQuery = query,
-                jobs = filterJobs(cachedAllJobs, query, state.activeSkills, state.zipCode, state.searchRadius, state.workMode),
-            )
+            state.copy(searchQuery = query)
         }
+        searchQueryFlow.value = query
     }
 
     // ---------------------------------------------------------------------------
@@ -285,7 +393,7 @@ class BountyBoardViewModel(
             val clean = zip.trim()
             state.copy(
                 zipCode = clean,
-                jobs = filterJobs(cachedAllJobs, state.searchQuery, state.activeSkills, clean, state.searchRadius, state.workMode),
+                jobs = filterJobs(cachedAllJobs, state.searchQuery, state.activeSkills, clean, state.searchRadius, state.workMode, state.sortOption),
             )
         }
     }
@@ -294,7 +402,7 @@ class BountyBoardViewModel(
         _uiState.update { state ->
             state.copy(
                 searchRadius = radius,
-                jobs = filterJobs(cachedAllJobs, state.searchQuery, state.activeSkills, state.zipCode, radius, state.workMode),
+                jobs = filterJobs(cachedAllJobs, state.searchQuery, state.activeSkills, state.zipCode, radius, state.workMode, state.sortOption),
             )
         }
     }
@@ -303,7 +411,16 @@ class BountyBoardViewModel(
         _uiState.update { state ->
             state.copy(
                 workMode = mode,
-                jobs = filterJobs(cachedAllJobs, state.searchQuery, state.activeSkills, state.zipCode, state.searchRadius, mode),
+                jobs = filterJobs(cachedAllJobs, state.searchQuery, state.activeSkills, state.zipCode, state.searchRadius, mode, state.sortOption),
+            )
+        }
+    }
+
+    fun updateSortOption(sort: String) {
+        _uiState.update { state ->
+            state.copy(
+                sortOption = sort,
+                jobs = filterJobs(cachedAllJobs, state.searchQuery, state.activeSkills, state.zipCode, state.searchRadius, state.workMode, sort),
             )
         }
     }

@@ -28,11 +28,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -138,6 +138,7 @@ fun ScribeTowerScreen(
     var isForging by remember { mutableStateOf(false) }
     var isExtracting by remember { mutableStateOf(false) }
     var forgeResult by remember { mutableStateOf<PdfForgeResult?>(null) }
+    var lastForgedTimestamp by remember { mutableStateOf<String?>(null) }
     var customNotes by remember { mutableStateOf("") }
 
     var reviewRawText by remember { mutableStateOf<String?>(null) }
@@ -145,33 +146,36 @@ fun ScribeTowerScreen(
     var reviewDroppedItems by remember { mutableStateOf<List<String>>(emptyList()) }
     var tailoredResume by remember { mutableStateOf<TailoredResume?>(null) }
 
-    LaunchedEffect(baseResume, selectedJob, userProfile, infusedSkills.toList(), customNotes) {
+    LaunchedEffect(selectedJob.id, baseResume?.skills, activeSkills) {
         infusedSkills.clear()
-        val jobMatches = selectedJob.matchedSkills
-        val initialSelection = if (jobMatches.isNotEmpty()) jobMatches else activeSkills.take(5)
-        infusedSkills.addAll(initialSelection)
+        val autoSelected = appContainer.resumeTailor.selectTopInfusedSkills(
+            jobTitle = selectedJob.title,
+            jobDescription = selectedJob.description.ifBlank { "${selectedJob.title} at ${selectedJob.company}" },
+            jobMatchedSkills = selectedJob.matchedSkills,
+            baseResumeSkills = baseResume?.skills.orEmpty(),
+            altarActiveSkills = activeSkills,
+            maxCount = 10,
+        )
+        infusedSkills.addAll(if (autoSelected.isNotEmpty()) autoSelected else activeSkills.take(6))
+    }
 
+    LaunchedEffect(baseResume, selectedJob, userProfile, infusedSkills.toList(), customNotes) {
         val base = baseResume
         if (base != null) {
             val repos = appContainer.gitHubRepoDao.getAll()
             val tailored = appContainer.resumeTailor.tailor(
-                jobDescription = selectedJob.description ?: "${selectedJob.title} at ${selectedJob.company}",
+                jobDescription = "${selectedJob.title} at ${selectedJob.company}. ${selectedJob.description}",
                 baseResume = base,
                 gitHubRepos = repos.map { it.toDomain() },
             )
-            val finalTailored = if (customNotes.isNotBlank()) tailored.copy(summary = customNotes) else tailored
-            tailoredResume = finalTailored
-            val res = ResumeForgePdfGenerator.forgeAtsResume(
-                context = context,
-                tailoredResume = finalTailored,
-                targetTitle = selectedJob.title,
-                targetCompany = selectedJob.company,
+            val mergedSkills = (infusedSkills.toList() + tailored.skills).distinctBy { it.lowercase().trim() }
+            val finalTailored = tailored.copy(
+                summary = if (customNotes.isNotBlank()) customNotes else tailored.summary,
+                skills = if (mergedSkills.isNotEmpty()) mergedSkills else tailored.skills,
             )
-            android.util.Log.i("ScribeTower", "Automatic ATS PDF forge for ${selectedJob.company}: $res")
-            forgeResult = res.getOrNull()
+            tailoredResume = finalTailored
         } else {
             tailoredResume = null
-            forgeResult = null
         }
     }
 
@@ -259,6 +263,7 @@ fun ScribeTowerScreen(
                             try {
                                 val raw = appContainer.resumeTextExtractor.extractText(uri).getOrThrow()
                                 val structResult = appContainer.resumeStructurer.structure(raw).getOrThrow()
+                                appContainer.skillRepository.mergeResumeSkills(structResult.resume.skills)
                                 reviewRawText = raw
                                 reviewParsedResume = structResult.resume
                                 reviewDroppedItems = structResult.droppedItems
@@ -281,10 +286,16 @@ fun ScribeTowerScreen(
                 )
             }
 
-            // 3. Skill Infusion Chips
+            // 3. Skill Infusion Chips (Auto-selected from Master Resume + Skill Altar + Target JD)
             item {
+                val combinedSkillPool = remember(infusedSkills.toList(), baseResume?.skills, activeSkills, selectedJob.matchedSkills) {
+                    (infusedSkills.toList() + selectedJob.matchedSkills + baseResume?.skills.orEmpty() + activeSkills)
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                        .distinctBy { it.lowercase() }
+                }
                 SkillInfusionCard(
-                    allSkills = (activeSkills + selectedJob.matchedSkills).distinct(),
+                    allSkills = combinedSkillPool,
                     infusedSkills = infusedSkills,
                     onToggleSkill = { skill ->
                         if (infusedSkills.contains(skill)) {
@@ -309,15 +320,32 @@ fun ScribeTowerScreen(
                 ForgeActionCard(
                     isForging = isForging,
                     forgeResult = forgeResult,
+                    lastForgedTimestamp = lastForgedTimestamp,
                     onForgePdf = {
-                        val currentTailored = tailoredResume ?: TailoredResume(
-                            summary = customNotes.ifBlank { "Software & AI Systems Engineer" },
-                            skills = infusedSkills.toList(),
-                            isTailored = false,
-                        )
                         isForging = true
                         scope.launch {
                             try {
+                                val savedBase = baseResumeRepo.getBaseResume() ?: baseResume
+                                val currentTailored = if (savedBase != null) {
+                                    val repos = appContainer.gitHubRepoDao.getAll()
+                                    val tailored = appContainer.resumeTailor.tailor(
+                                        jobDescription = selectedJob.description ?: "${selectedJob.title} at ${selectedJob.company}",
+                                        baseResume = savedBase,
+                                        gitHubRepos = repos.map { it.toDomain() },
+                                    )
+                                    val mergedSkills = (infusedSkills.toList() + tailored.skills).distinct()
+                                    tailored.copy(
+                                        summary = if (customNotes.isNotBlank()) customNotes else tailored.summary,
+                                        skills = if (mergedSkills.isNotEmpty()) mergedSkills else tailored.skills,
+                                    ).also { tailoredResume = it }
+                                } else {
+                                    tailoredResume ?: TailoredResume(
+                                        summary = customNotes.ifBlank { "Software & AI Systems Engineer" },
+                                        skills = infusedSkills.toList(),
+                                        isTailored = false,
+                                    )
+                                }
+
                                 val res = ResumeForgePdfGenerator.forgeAtsResume(
                                     context = context,
                                     tailoredResume = currentTailored,
@@ -325,23 +353,41 @@ fun ScribeTowerScreen(
                                     targetCompany = selectedJob.company,
                                 )
                                 android.util.Log.i("ScribeTower", "forgeAtsResume result: $res")
-                                forgeResult = res.getOrNull()
+                                res.onSuccess { pdf ->
+                                    forgeResult = pdf
+                                    lastForgedTimestamp = java.text.SimpleDateFormat("h:mm:ss a", java.util.Locale.US).format(java.util.Date())
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "1-Page ATS PDF Generated (${String.format("%.1f", pdf.fileSizeKb)} KB)",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }.onFailure { err ->
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "PDF Forge error: ${err.message}",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
                             } finally {
                                 isForging = false
                             }
                         }
                     },
                     onViewPdf = { file ->
-                        val uri = FileProvider.getUriForFile(
-                            context,
-                            "${context.packageName}.fileprovider",
-                            file
-                        )
-                        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, "application/pdf")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        runCatching {
+                            val uri = FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.fileprovider",
+                                file
+                            )
+                            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, "application/pdf")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(viewIntent, "Open ATS Resume"))
+                        }.onFailure {
+                            android.widget.Toast.makeText(context, "Saved at: ${file.absolutePath}", android.widget.Toast.LENGTH_LONG).show()
                         }
-                        context.startActivity(Intent.createChooser(viewIntent, "Open ATS Resume"))
                     },
                     onSendToCourier = {
                         val pdfName = forgeResult?.file?.name ?: "ATS_Resume_${selectedJob.company.replace(Regex("[^a-zA-Z0-9]"), "_").lowercase()}.pdf"
@@ -376,6 +422,14 @@ fun ScribeTowerScreen(
             onConfirm = { confirmedResume ->
                 scope.launch {
                     baseResumeRepo.saveConfirmedResume(reviewRawText!!, confirmedResume)
+                    val addedCount = appContainer.skillRepository.mergeResumeSkills(confirmedResume.skills).getOrDefault(0)
+                    if (addedCount > 0) {
+                        android.widget.Toast.makeText(
+                            context,
+                            "Merged $addedCount new skill(s) into Skill Altar",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
                     reviewRawText = null
                     reviewParsedResume = null
                 }
@@ -647,6 +701,7 @@ private fun CustomSummaryCard(
 private fun ForgeActionCard(
     isForging: Boolean,
     forgeResult: PdfForgeResult?,
+    lastForgedTimestamp: String? = null,
     onForgePdf: () -> Unit,
     onViewPdf: (java.io.File) -> Unit,
     onSendToCourier: () -> Unit,
@@ -712,8 +767,9 @@ private fun ForgeActionCard(
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                             color = Color(0xFF81C784),
                         )
+                        val savedTimeSuffix = if (!lastForgedTimestamp.isNullOrBlank()) " · Updated $lastForgedTimestamp" else ""
                         Text(
-                            text = "Saved: ${forgeResult.file.name}",
+                            text = "Saved: ${forgeResult.file.name}$savedTimeSuffix",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.8f),
                         )
@@ -736,7 +792,7 @@ private fun ForgeActionCard(
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                             ) {
-                                Icon(Icons.Default.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("Queue in Courier Guild", color = Color.Black, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
                             }

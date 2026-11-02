@@ -255,6 +255,94 @@ object LinkValidator {
     }
 
     /**
+     * Detects whether a URL is a hardcoded/seeded placeholder ID or flagged as DEAD/SEED.
+     */
+    fun isDeadPlaceholderOrSeedUrl(rawUrl: String, linkStatus: String = ""): Boolean {
+        if (linkStatus.equals("DEAD", ignoreCase = true) || linkStatus.equals("SEED", ignoreCase = true)) {
+            return true
+        }
+        if (!checkStructure(rawUrl)) return true
+        val lower = rawUrl.lowercase().trim()
+
+        if (lower.contains("/search?q=") || lower.contains("bing.com/search")) return true
+
+        // Any seeded LinkedIn job ID or synthetic LinkedIn job ID pattern
+        val syntheticLinkedInRegex = Regex("""linkedin\.com/jobs/view/(44[1-9]\d{7}|45[0-2]\d{7})""")
+        if (syntheticLinkedInRegex.containsMatchIn(lower)) return true
+
+        // Synthetic Greenhouse sequential IDs from local seed lists
+        val syntheticGreenhouseRegex = Regex("""greenhouse\.io/[^/]+/jobs/(61029[4-6]\d|5730303003|5820392|5910283|5819203)$""")
+        if (syntheticGreenhouseRegex.containsMatchIn(lower)) return true
+
+        // Synthetic Lever/Ashby non-UUID slugs (live Lever/Ashby postings use 36-char UUIDs)
+        if (lower.contains("jobs.lever.co/") || lower.contains("jobs.ashbyhq.com/")) {
+            val uuidRegex = Regex("""[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}""")
+            if (!uuidRegex.containsMatchIn(lower)) return true
+        }
+
+        return false
+    }
+
+    /**
+     * Strictly verifies that a job URL is a live, direct ATS requisition link (never a search fallback or seed).
+     */
+    fun isValidDirectAtsUrl(rawUrl: String, linkStatus: String = ""): Boolean {
+        if (isDeadPlaceholderOrSeedUrl(rawUrl, linkStatus)) return false
+        return isSpecificPosting(rawUrl)
+    }
+
+    /**
+     * Synchronously resolves a validated direct ATS URL; returns empty string if dead or placeholder.
+     */
+    fun resolveLaunchUrl(
+        company: String,
+        title: String,
+        rawUrl: String,
+        linkStatus: String = "",
+    ): String {
+        val safeUrl = if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
+            rawUrl.trim()
+        } else if (rawUrl.isNotBlank()) {
+            "https://${rawUrl.trim()}"
+        } else {
+            ""
+        }
+        if (!isValidDirectAtsUrl(safeUrl, linkStatus)) {
+            return ""
+        }
+        return safeUrl
+    }
+
+    /**
+     * Validates a direct ATS job URL before launching; returns empty string if dead, seeded, or unverified.
+     */
+    suspend fun validateAndResolveLaunchUrl(
+        company: String,
+        title: String,
+        rawUrl: String,
+        linkStatus: String = "",
+    ): String = withContext(Dispatchers.IO) {
+        val safeUrl = if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
+            rawUrl.trim()
+        } else if (rawUrl.isNotBlank()) {
+            "https://${rawUrl.trim()}"
+        } else {
+            ""
+        }
+        if (!isValidDirectAtsUrl(safeUrl, linkStatus)) {
+            return@withContext ""
+        }
+        val outcome = resolveAndValidateDirectLink(safeUrl)
+        if (outcome.status == LinkValidationStatus.DEAD ||
+            outcome.finalUrl.contains("linkedin.com/uas/login") ||
+            outcome.finalUrl.contains("linkedin.com/authwall")
+        ) {
+            return@withContext ""
+        }
+        outcome.finalUrl
+    }
+
+    /**
      * Backward-compatible link connectivity check on [Dispatchers.IO].
      */
     suspend fun validateUrl(rawUrl: String): ValidationResult = withContext(Dispatchers.IO) {

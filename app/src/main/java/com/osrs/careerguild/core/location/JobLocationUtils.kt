@@ -232,6 +232,55 @@ object JobLocationUtils {
     }
 
     /**
+     * Computes Haversine distance in statute miles between [userZip] (defaults to 11581, Valley Stream, NY)
+     * and the job's coordinates ([lat]/[lng] if provided, otherwise resolved from [jobLocation]).
+     */
+    fun calculateJobDistanceMiles(
+        jobLocation: String,
+        userZip: String = "11581",
+        lat: Double? = null,
+        lng: Double? = null,
+    ): Int {
+        val userCoords = resolveZipCoordinates(userZip.ifBlank { "11581" })
+        val jobCoords = if (lat != null && lng != null) {
+            GeoCoordinates(lat, lng)
+        } else {
+            resolveJobCoordinates(jobLocation)
+        }
+        return calculateDistanceMiles(userCoords, jobCoords)
+    }
+
+    /**
+     * Formats algorithmic sorting telemetry for job cards:
+     * e.g., "Posted 2h ago • 5mi away • 92% Match"
+     */
+    fun formatAlgorithmicMetrics(
+        timePosted: Long,
+        jobLocation: String,
+        workMode: String,
+        userZip: String = "11581",
+        matchScore: Int,
+        lat: Double? = null,
+        lng: Double? = null,
+    ): String {
+        val elapsedMs = (System.currentTimeMillis() - timePosted).coerceAtLeast(3_600_000L)
+        val hoursAgo = (elapsedMs / 3_600_000L).coerceIn(1L, 168L)
+        val distanceMiles = calculateJobDistanceMiles(
+            jobLocation = jobLocation,
+            userZip = userZip.ifBlank { "11581" },
+            lat = lat,
+            lng = lng,
+        ).coerceAtLeast(1)
+        val isRemoteJob = workMode.equals("Remote", ignoreCase = true) || jobLocation.contains("Remote", ignoreCase = true)
+        val distanceText = if (isRemoteJob && !jobLocation.contains("New York", ignoreCase = true)) {
+            "${distanceMiles}mi away (Remote)"
+        } else {
+            "${distanceMiles}mi away"
+        }
+        return "Posted ${hoursAgo}h ago • $distanceText • ${matchScore}% Match"
+    }
+
+    /**
      * Evaluates whether a job passes the radius filter.
      * Supported search radii: "10 mi", "25 mi", "50 mi", "100 mi", "Remote".
      */

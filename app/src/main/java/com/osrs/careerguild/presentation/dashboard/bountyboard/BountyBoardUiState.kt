@@ -39,6 +39,9 @@ data class BountyBoardUiState(
     val searchRadius   : String             = "25 mi",
     val workMode       : String             = "All",
 
+    /** Sort order: "Latest", "Closest", or "Best Match". */
+    val sortOption     : String             = "Best Match",
+
     /** Snackbar-style confirmation after blocking a company. */
     val blockedCompany : String?            = null,
 
@@ -56,6 +59,15 @@ data class BountyBoardUiState(
      * UI can surface a "Keyword-only mode" badge when false.
      */
     val isGeminiAllowed: Boolean            = true,
+
+    /** Distinguishes "LIVE_FETCHING", "LIVE_SYNCED", and "OFFLINE_CACHE". */
+    val dataSourceMode : String             = "OFFLINE_CACHE",
+
+    /** Human-readable telemetry status for Live Fetching vs. Offline Cached Data. */
+    val lastSyncMessage: String             = "Offline Cached Data (Room Vault)",
+
+    /** Count of newly pulled or refreshed jobs from the last live fetch pass. */
+    val newJobsPulledCount: Int             = 0,
 )
 
 /**

@@ -187,22 +187,74 @@ fun JobListingCard(
                 }
             }
 
-            // --- Matched skills chips ---
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // --- Algorithmic Sorting Telemetry (Task 3: Recency • Distance • Match) ---
+            val metricsLine = JobLocationUtils.formatAlgorithmicMetrics(
+                timePosted  = job.timePosted,
+                jobLocation = job.location,
+                workMode    = job.workMode,
+                userZip     = userZipCode,
+                matchScore  = job.score,
+                lat         = job.lat,
+                lng         = job.lng,
+            )
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = Color(0xFF1F1610),
+                border = BorderStroke(0.6.dp, Color(0xFFFFD700).copy(alpha = 0.5f)),
+            ) {
+                Text(
+                    text = metricsLine,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    color = Color(0xFFE5D9B6),
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
+
+            // --- Matched skills chips (De-cluttered: top 4 tags + interactive expandable +N pill) ---
             if (job.matchedSkills.isNotEmpty()) {
+                var areAllSkillsExpanded by remember { mutableStateOf(false) }
+                val displayedSkills = if (areAllSkillsExpanded) job.matchedSkills else job.matchedSkills.take(4)
                 Spacer(modifier = Modifier.height(6.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    job.matchedSkills.take(5).forEach { skill ->
+                    displayedSkills.forEach { skill ->
                         val isHighlighted = activeSkillNames.any { active ->
                             skill.lowercase().contains(active) || active.contains(skill.lowercase())
                         }
                         SkillChip(label = skill, isHighlighted = isHighlighted)
                     }
-                    if (job.matchedSkills.size > 5) {
-                        SkillChip("+${job.matchedSkills.size - 5}")
+                    if (job.matchedSkills.size > 4) {
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = Color(0xFF2B1D14),
+                                    shape = RoundedCornerShape(4.dp),
+                                )
+                                .border(
+                                    width = 0.8.dp,
+                                    color = Color(0xFFFFD700).copy(alpha = 0.6f),
+                                    shape = RoundedCornerShape(4.dp),
+                                )
+                                .clickable { areAllSkillsExpanded = !areAllSkillsExpanded }
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                text  = if (areAllSkillsExpanded) "▲ Show less" else "+${job.matchedSkills.size - 4} more",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 9.sp,
+                                ),
+                                color = Color(0xFFFFD700),
+                            )
+                        }
                     }
                 }
             }
@@ -282,37 +334,45 @@ fun JobListingCard(
                 verticalAlignment     = Alignment.CenterVertically,
                 modifier              = Modifier.fillMaxWidth(),
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Forge Scroll (Scribe Tower)
-                    androidx.compose.material3.OutlinedButton(
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Forge Scroll (Primary Action: Scribe Tower Resume Tailoring — Warm Gold / Amber Hierarchy)
+                    androidx.compose.material3.Button(
                         onClick = { onForgeScroll(job) },
                         shape   = RoundedCornerShape(6.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                        border  = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFD700)),
-                        colors  = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                            containerColor = Color(0xFF3D2B1F).copy(alpha = 0.4f),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+                        border  = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFFFD700)),
+                        colors  = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF5C3D14),
+                            contentColor   = Color(0xFFFFD700),
                         ),
                     ) {
                         Text(
                             text  = "📜 Forge Scroll",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 0.2.sp,
+                            ),
                             color = Color(0xFFFFD700),
                         )
                     }
 
-                    // Queue Auto-Apply (Courier Guild)
+                    // Queue Auto-Apply (Secondary Dispatch Action: Courier Guild — Distinct Cyber-Teal / Emerald Hierarchy)
                     androidx.compose.material3.OutlinedButton(
                         onClick = { onQueueAutoApply(job) },
                         shape   = RoundedCornerShape(6.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                        border  = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF)),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+                        border  = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)),
                         colors  = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                            containerColor = Color(0xFF1E3A4A).copy(alpha = 0.4f),
+                            containerColor = Color(0xFF0A2E38),
+                            contentColor   = Color(0xFF00E5FF),
                         ),
                     ) {
                         Text(
-                            text  = "📬 Auto-Apply",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            text  = "⚡ Auto-Apply",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 0.2.sp,
+                            ),
                             color = Color(0xFF00E5FF),
                         )
                     }

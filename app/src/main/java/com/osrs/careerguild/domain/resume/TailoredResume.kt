@@ -25,6 +25,41 @@ data class TailoredResume(
     val fallbackReason: String? = null,
 ) {
     companion object {
+        private val trailingMonthRegex = Regex(
+            """^(.*?)(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)$"""
+        )
+
+        fun sanitizeExperience(exp: ResumeExperience): ResumeExperience {
+            var cleanEmployer = exp.employer.trim()
+            var cleanTitle = exp.title.trim()
+            var cleanStart = exp.startDate?.trim()
+            trailingMonthRegex.find(cleanEmployer)?.let { m ->
+                val prefix = m.groupValues[1].trim()
+                val month = m.groupValues[2].trim()
+                if (prefix.isNotEmpty()) {
+                    cleanEmployer = prefix
+                    if (!cleanStart.isNullOrBlank() && !cleanStart!!.contains(month, ignoreCase = true)) {
+                        cleanStart = "$month $cleanStart"
+                    }
+                }
+            }
+            trailingMonthRegex.find(cleanTitle)?.let { m ->
+                val prefix = m.groupValues[1].trim()
+                val month = m.groupValues[2].trim()
+                if (prefix.isNotEmpty()) {
+                    cleanTitle = prefix
+                    if (!cleanStart.isNullOrBlank() && !cleanStart!!.contains(month, ignoreCase = true)) {
+                        cleanStart = "$month $cleanStart"
+                    }
+                }
+            }
+            return exp.copy(
+                employer = cleanEmployer,
+                title = cleanTitle,
+                startDate = cleanStart,
+            )
+        }
+
         fun empty(): TailoredResume = TailoredResume(isTailored = false)
 
         fun fromBaseResume(base: BaseResume, reason: String? = null): TailoredResume {
@@ -32,7 +67,7 @@ data class TailoredResume(
                 contact = base.contact,
                 summary = base.summary ?: "",
                 skills = base.skills,
-                experience = base.experience,
+                experience = base.experience.map { sanitizeExperience(it) },
                 projects = base.projects,
                 education = base.education,
                 certifications = base.certifications,

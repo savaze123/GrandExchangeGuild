@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -89,17 +90,19 @@ fun CollapsibleGuildOverlay(
     content           : @Composable () -> Unit,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val isUnfoldedWide = maxWidth >= 600.dp
         val screenHeightPx = constraints.maxHeight.toFloat()
-        val peekHeightDp = 58.dp
-        val peekHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) { peekHeightDp.toPx() }
+        val peekHeightDp = if (isUnfoldedWide) 52.dp else 48.dp
+        val peekHeightPx = with(density) { peekHeightDp.toPx() }
 
-        // Animation progress: 0.0f = collapsed (peek only), 1.0f = fully expanded
+        // Animation progress: 0.0f = collapsed (compact bottom bar only), 1.0f = fully expanded
         val targetExpansion = if (isExpanded) 1f else 0f
         val animatedProgress by animateFloatAsState(
             targetValue = targetExpansion,
             animationSpec = spring(
-                dampingRatio = Spring.DampingRatioLowBouncy,
-                stiffness = Spring.StiffnessMediumLow,
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessMedium,
             ),
             label = "GuildDrawerExpansion",
         )
@@ -110,18 +113,32 @@ fun CollapsibleGuildOverlay(
         val expandedOffsetY = screenHeightPx - expandedHeightPx
 
         val currentOffsetY = collapsedOffsetY - (collapsedOffsetY - expandedOffsetY) * animatedProgress
+        val activeHeightDp = if (!isExpanded && animatedProgress < 0.05f) {
+            peekHeightDp
+        } else {
+            with(density) { expandedHeightPx.toDp() }
+        }
 
-        // Gesture state for dragging
+        // Responsive container: centered with balanced max-width when unfolded so cards never stretch awkwardly across the full dual display
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(with(androidx.compose.ui.platform.LocalDensity.current) { expandedHeightPx.toDp() })
+                .align(Alignment.TopCenter)
+                .then(
+                    if (isUnfoldedWide) {
+                        Modifier
+                            .widthIn(max = if (isExpanded) 780.dp else 560.dp)
+                            .fillMaxWidth(if (isExpanded) 0.92f else 0.72f)
+                    } else {
+                        Modifier.fillMaxWidth()
+                    }
+                )
+                .height(activeHeightDp)
                 .offset { IntOffset(x = 0, y = currentOffsetY.roundToInt()) },
         ) {
             Surface(
                 shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-                color = OsrsDarkStone.copy(alpha = 0.95f),
-                border = BorderStroke(2.dp, OsrsGold),
+                color = OsrsDarkStone.copy(alpha = 0.96f),
+                border = BorderStroke(1.5.dp, OsrsGold),
                 modifier = Modifier
                     .fillMaxSize()
                     .border(
@@ -133,9 +150,9 @@ fun CollapsibleGuildOverlay(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .navigationBarsPadding(),
+                        .then(if (isExpanded) Modifier.navigationBarsPadding() else Modifier),
                 ) {
-                    // --- 1. Top Drag Handle & Trigger Bar ---
+                    // --- 1. Compact Top Drag Handle & Trigger Bar ---
                     DrawerTopDragBar(
                         isExpanded       = isExpanded,
                         onToggleExpand   = { onExpandedChange(!isExpanded) },
@@ -147,7 +164,7 @@ fun CollapsibleGuildOverlay(
                     )
 
                     // --- 2. Expanded Navigation Header & Guild Tab Strip ---
-                    if (animatedProgress > 0.15f) {
+                    if (animatedProgress > 0.12f) {
                         GuildDrawerHeader(
                             selectedBuilding   = selectedBuilding,
                             onBuildingSelected = onBuildingSelected,
@@ -170,7 +187,7 @@ fun CollapsibleGuildOverlay(
 }
 
 /**
- * Top drag handle pill and collapsed trigger bar.
+ * Top drag handle pill and compact collapsed trigger bar.
  */
 @Composable
 private fun DrawerTopDragBar(
@@ -184,15 +201,16 @@ private fun DrawerTopDragBar(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 8.dp, bottom = 4.dp, start = 12.dp, end = 12.dp),
+            .clickable { onToggleExpand() }
+            .padding(top = 5.dp, bottom = 3.dp, start = 12.dp, end = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Gold Pill Drag Indicator
         Box(
             modifier = Modifier
-                .width(60.dp)
-                .height(7.dp)
-                .background(OsrsGold.copy(alpha = 0.9f), RoundedCornerShape(4.dp))
+                .width(48.dp)
+                .height(5.dp)
+                .background(OsrsGold.copy(alpha = 0.9f), RoundedCornerShape(3.dp))
                 .pointerInput(isExpanded) {
                     detectVerticalDragGestures(
                         onDragStart = { dragAccumulator = 0f },
@@ -209,41 +227,32 @@ private fun DrawerTopDragBar(
                             dragAccumulator += dragAmount
                         },
                     )
-                }
-                .clickable { onToggleExpand() },
+                },
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clickable { onToggleExpand() }
-                    .padding(vertical = 4.dp),
-            ) {
-                Text(
-                    text = if (isExpanded) "▼ Guild Drawer (Tap to Collapse)" else "▲ Guild Drawer (Tap 3D Structures to Enter)",
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.5.sp,
-                    ),
-                    color = OsrsGold,
-                )
-            }
+            Text(
+                text = if (isExpanded) "▼ Guild Drawer (Tap to Collapse)" else "▲ Guild Drawer",
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.4.sp,
+                ),
+                color = OsrsGold,
+                modifier = Modifier.padding(vertical = 2.dp),
+            )
 
             if (!isExpanded) {
                 Text(
-                    text = "Tap 3D Guild Buildings ⚔",
+                    text = "Tap to Expand · 4 Modules ⚔",
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                     color = OsrsCyan,
-                    modifier = Modifier
-                        .clickable { onToggleExpand() }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
         }
@@ -339,13 +348,13 @@ private fun GuildDrawerHeader(
                         )
                         Text(
                             text = when (building) {
-                                GuildBuilding.BOUNTY_BOARD  -> "Job Radar"
-                                GuildBuilding.SCRIBE_TOWER  -> "ATS Forge"
-                                GuildBuilding.SKILL_ALTAR   -> "Matrix"
-                                GuildBuilding.COURIER_GUILD -> "Ledger"
+                                GuildBuilding.BOUNTY_BOARD  -> "Job Postings"
+                                GuildBuilding.SCRIBE_TOWER  -> "Resume Forge"
+                                GuildBuilding.SKILL_ALTAR   -> "Skill Matrix"
+                                GuildBuilding.COURIER_GUILD -> "Auto-Apply"
                             },
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                            color = if (isSelected) OsrsGold.copy(alpha = 0.8f) else OsrsTextDim.copy(alpha = 0.6f),
+                            color = if (isSelected) OsrsGold.copy(alpha = 0.85f) else OsrsTextDim.copy(alpha = 0.7f),
                             maxLines = 1,
                         )
                     }

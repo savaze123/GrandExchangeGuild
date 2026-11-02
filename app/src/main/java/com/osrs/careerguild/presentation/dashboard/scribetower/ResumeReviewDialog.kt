@@ -94,13 +94,13 @@ fun ResumeReviewDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "📜 Review & Confirm Ground Truth",
+                        text = "Review Extracted Resume",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = OsrsGold,
                     )
                 }
                 Text(
-                    text = "Verify transcription against raw extracted text before committing to encrypted vault.",
+                    text = "Check that your resume details were read properly before saving.",
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.LightGray,
                 )
@@ -108,27 +108,25 @@ fun ResumeReviewDialog(
         },
         text = {
             Column(modifier = Modifier.fillMaxSize()) {
-                if (droppedItems.isNotEmpty()) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFF3E2723),
-                        border = BorderStroke(1.dp, Color(0xFFFF9800)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp),
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFF1B3B22),
+                    border = BorderStroke(1.dp, Color(0xFF4CAF50)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Row(
-                            modifier = Modifier.padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFF9800), modifier = Modifier.size(16.dp))
-                            Text(
-                                text = "Fact-check check dropped ungrounded items: ${droppedItems.joinToString("; ")}",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                color = Color(0xFFFFCC80),
-                            )
-                        }
+                        Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF81C784), modifier = Modifier.size(16.dp))
+                        Text(
+                            text = "Parsed offline from your uploaded file.",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = Color(0xFF81C784),
+                        )
                     }
                 }
 
@@ -140,12 +138,12 @@ fun ResumeReviewDialog(
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        text = { Text("1. Raw Extracted Text", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                        text = { Text("Full Resume Text", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     )
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("2. Structured Ground Truth", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                        text = { Text("Parsed Sections", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     )
                 }
 
@@ -266,7 +264,7 @@ fun ResumeReviewDialog(
             ) {
                 Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Confirm Ground Truth", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                Text("Save Resume", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
             }
         },
         dismissButton = {

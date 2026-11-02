@@ -5,10 +5,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -18,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.osrs.careerguild.core.profile.UserProfile
@@ -142,18 +145,37 @@ fun SharedAtsResumePreview(
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                     color = Color.Black,
                 )
-                for (exp in resume.experience) {
+                for (rawExp in resume.experience) {
+                    val exp = TailoredResume.sanitizeExperience(rawExp)
                     val dateLoc = buildString {
                         if (!exp.startDate.isNullOrBlank()) append(exp.startDate)
                         if (!exp.endDate.isNullOrBlank()) append(" – ${exp.endDate}") else if (exp.isCurrent) append(" – Present")
                         if (!exp.location.isNullOrBlank()) append("  ·  ${exp.location}")
                     }
-                    val header = if (dateLoc.isNotBlank()) "${exp.employer}  |  ${exp.title} ($dateLoc)" else "${exp.employer}  |  ${exp.title}"
-                    Text(
-                        text = header,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
-                        color = Color(0xFF1B3B22),
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Text(
+                            text = "${exp.employer}  |  ${exp.title}",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                            color = Color(0xFF1B3B22),
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (dateLoc.isNotBlank()) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = dateLoc,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Medium,
+                                ),
+                                color = Color(0xFF3E3E3E),
+                                textAlign = TextAlign.End,
+                            )
+                        }
+                    }
                     for (b in exp.bullets) {
                         Text(
                             text = "• $b",
@@ -162,7 +184,7 @@ fun SharedAtsResumePreview(
                             modifier = Modifier.padding(start = 4.dp),
                         )
                     }
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
                 }
             }
 

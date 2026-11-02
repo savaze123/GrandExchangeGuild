@@ -147,24 +147,38 @@ class ResumeTextExtractor(private val context: Context) {
 
     private fun parseDocxXml(xml: String): String {
         val paragraphRegex = Regex("<w:p[ >](.*?)</w:p>", setOf(RegexOption.DOT_MATCHES_ALL))
-        val textRegex = Regex("<w:t[^>]*>(.*?)</w:t>", setOf(RegexOption.DOT_MATCHES_ALL))
+        val tokenRegex = Regex("<w:t[^>]*>(.*?)</w:t>|<w:tab[^>]*/>|<w:br[^>]*/>", setOf(RegexOption.DOT_MATCHES_ALL))
         val sb = StringBuilder()
 
         for (pMatch in paragraphRegex.findAll(xml)) {
             val paragraphXml = pMatch.value
+            val isXmlBullet = paragraphXml.contains("<w:numPr") ||
+                paragraphXml.contains("ListParagraph", ignoreCase = true) ||
+                paragraphXml.contains("ListBullet", ignoreCase = true)
             val paragraphText = StringBuilder()
-            for (tMatch in textRegex.findAll(paragraphXml)) {
-                paragraphText.append(decodeXml(tMatch.groupValues[1]))
+            for (token in tokenRegex.findAll(paragraphXml)) {
+                val rawToken = token.value
+                when {
+                    rawToken.startsWith("<w:tab") -> paragraphText.append(" | ")
+                    rawToken.startsWith("<w:br") -> paragraphText.append("\n")
+                    else -> paragraphText.append(decodeXml(token.groupValues[1]))
+                }
             }
-            val line = paragraphText.toString().trim()
-            if (line.isNotEmpty()) {
-                sb.append(line).append("\n")
+            val lines = paragraphText.toString().lines().map { it.trim() }.filter { it.isNotEmpty() }
+            for ((idx, line) in lines.withIndex()) {
+                val formattedLine = if (isXmlBullet && idx == 0 && !line.startsWith("•") && !line.startsWith("-") && !line.startsWith("*")) {
+                    "• $line"
+                } else {
+                    line
+                }
+                sb.append(formattedLine).append("\n")
             }
         }
 
         val result = sb.toString().trim()
         if (result.isEmpty()) {
             // Fallback: extract all <w:t> nodes directly if paragraphs were structured differently
+            val textRegex = Regex("<w:t[^>]*>(.*?)</w:t>", setOf(RegexOption.DOT_MATCHES_ALL))
             for (tMatch in textRegex.findAll(xml)) {
                 sb.append(decodeXml(tMatch.groupValues[1])).append(" ")
             }

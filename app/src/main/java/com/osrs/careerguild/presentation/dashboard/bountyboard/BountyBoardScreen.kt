@@ -3,9 +3,15 @@ package com.osrs.careerguild.presentation.dashboard.bountyboard
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +30,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -53,6 +60,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,7 +73,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.osrs.careerguild.core.network.LinkValidator
 import com.osrs.careerguild.core.profile.UserProfileManager
+import kotlinx.coroutines.launch
 
 /**
  * Bounty Board screen — the full right-pane feature for [UI_SPLIT_SCAFFOLD]
@@ -82,9 +93,11 @@ fun BountyBoardScreen(
     onQueueAutoApply: (com.osrs.careerguild.domain.model.JobListing) -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var searchQuery by rememberSaveable { mutableStateOf(uiState.searchQuery) }
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
+    val scope = rememberCoroutineScope()
 
     val profileManager = remember { UserProfileManager.getInstance(context) }
     val userProfile by profileManager.profile.collectAsState()
@@ -171,48 +184,160 @@ fun BountyBoardScreen(
                     }
                 }
 
-                IconButton(
-                    onClick  = { viewModel.refresh() },
-                    enabled  = !uiState.isScraping && !uiState.isScoring,
+                // Live Fetching vs. Offline Cached Data Badge + Refresh Button
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Icon(
-                        imageVector        = Icons.Default.Refresh,
-                        contentDescription = "Refresh job listings",
-                        tint               = Color(0xFFFFD700),
-                    )
+                    val isLiveActive = uiState.isScraping || uiState.isScoring
+                    val isLiveSynced = uiState.dataSourceMode == "LIVE_SYNCED"
+                    val badgeColor = when {
+                        isLiveActive -> Color(0xFF00E5FF)
+                        isLiveSynced -> Color(0xFF4CAF50)
+                        else         -> Color(0xFFFFB300)
+                    }
+                    val badgeLabel = when {
+                        isLiveActive -> "⚡ Live Fetching"
+                        isLiveSynced -> "✓ Live Feed Synced"
+                        else         -> "📦 Offline Cached Data"
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = badgeColor.copy(alpha = 0.14f),
+                        border = BorderStroke(0.8.dp, badgeColor),
+                        modifier = Modifier.clickable(enabled = !isLiveActive) { viewModel.refresh() },
+                    ) {
+                        Text(
+                            text = badgeLabel,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold,
+                            ),
+                            color = badgeColor,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                        )
+                    }
+
+                    IconButton(
+                        onClick  = { viewModel.refresh() },
+                        enabled  = !uiState.isScraping && !uiState.isScoring,
+                    ) {
+                        Icon(
+                            imageVector        = Icons.Default.Refresh,
+                            contentDescription = "Refresh job listings",
+                            tint               = Color(0xFFFFD700),
+                        )
+                    }
                 }
             }
         }
 
-        // --- Scraping / Scoring progress bar ---
-        AnimatedVisibility(
-            visible = uiState.isScraping || uiState.isScoring,
-            enter   = fadeIn(),
-            exit    = fadeOut(),
+        // --- Active Scouting / Live Progress Banner (Pulsing radar indicator + Live vs. Cached telemetry) ---
+        val pulseTransition = rememberInfiniteTransition(label = "ScoutingPulse")
+        val pulseAlpha by pulseTransition.animateFloat(
+            initialValue = 0.25f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 650),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "ScoutingPulseAlpha",
+        )
+        Surface(
+            color = if (uiState.isScraping || uiState.isScoring) Color(0xFF10252E) else Color(0xFF1A140F),
+            border = BorderStroke(
+                0.8.dp,
+                if (uiState.isScraping || uiState.isScoring) Color(0xFF00E5FF).copy(alpha = pulseAlpha) else Color(0xFF3D2B1F),
+            ),
+            shape = RoundedCornerShape(6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 3.dp),
         ) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                LinearProgressIndicator(
+            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth(),
-                    progress = uiState.scoringProgress?.let { p ->
-                        p.current.toFloat() / p.total.toFloat()
-                    } ?: 0f,
-                    color    = MaterialTheme.colorScheme.primary,
-                )
-                val label = when {
-                    uiState.isScraping -> "⚔ Scouting job boards…"
-                    uiState.scoringProgress != null -> {
-                        val p = uiState.scoringProgress!!
-                        "🔮 Scoring ${p.current}/${p.total}: ${p.currentJobTitle.take(30)}…"
+                ) {
+                    val isBusy = uiState.isScraping || uiState.isScoring
+                    Box(
+                        modifier = Modifier
+                            .size(9.dp)
+                            .background(
+                                color = when {
+                                    isBusy -> Color(0xFF00E5FF).copy(alpha = pulseAlpha)
+                                    uiState.dataSourceMode == "LIVE_SYNCED" -> Color(0xFF4CAF50)
+                                    else -> Color(0xFFFFB300)
+                                },
+                                shape = CircleShape,
+                            )
+                    )
+                    val statusHeadline = when {
+                        uiState.isScraping -> "⚡ LIVE FETCHING: Querying Greenhouse, Lever, Ashby, Remotive & Arbeitnow…"
+                        uiState.scoringProgress != null -> {
+                            val p = uiState.scoringProgress!!
+                            val pct = ((p.current.toFloat() / p.total.coerceAtLeast(1).toFloat()) * 100).toInt()
+                            "🔮 LIVE SCORING ($pct% · ${p.current}/${p.total}): ${p.currentJobTitle.take(36)}"
+                        }
+                        else -> uiState.lastSyncMessage
                     }
-                    else -> "Processing…"
+                    Text(
+                        text  = statusHeadline,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = if (isBusy) Color(0xFF00E5FF) else Color(0xFFE5D9B6),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
-                Text(
-                    text  = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                )
+
+                AnimatedVisibility(
+                    visible = uiState.isScraping || uiState.isScoring,
+                    enter   = fadeIn(),
+                    exit    = fadeOut(),
+                ) {
+                    Column {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        if (uiState.scoringProgress != null) {
+                            val p = uiState.scoringProgress!!
+                            LinearProgressIndicator(
+                                progress = { (p.current.toFloat() / p.total.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxWidth(),
+                                color    = Color(0xFF00E5FF),
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth(),
+                                color    = Color(0xFF00E5FF),
+                            )
+                        }
+                    }
+                }
             }
         }
+
+        // --- Static Search Bar (outside LazyColumn so focus & keyboard never drop on filter updates) ---
+        OutlinedTextField(
+            value         = searchQuery,
+            onValueChange = { newQuery ->
+                searchQuery = newQuery
+                viewModel.search(newQuery)
+            },
+            placeholder   = { Text("Search jobs or companies…") },
+            leadingIcon   = {
+                Icon(Icons.Default.Search, contentDescription = null)
+            },
+            singleLine     = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+            modifier       = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 2.dp),
+        )
 
         // --- Main content area (Scroll-friendly to maximize vertical space for quest cards) ---
         Box(modifier = Modifier.weight(1f)) {
@@ -224,91 +349,64 @@ fun BountyBoardScreen(
                     )
                 }
 
-                uiState.jobs.isEmpty() && !uiState.isScraping -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 12.dp),
-                    ) {
-                        OutlinedTextField(
-                            value         = uiState.searchQuery,
-                            onValueChange = viewModel::search,
-                            placeholder   = { Text("Search jobs or companies…") },
-                            leadingIcon   = {
-                                Icon(Icons.Default.Search, contentDescription = null)
-                            },
-                            singleLine     = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-                            modifier       = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                        )
-                        SearchParametersSection(
-                            uiState   = uiState,
-                            viewModel = viewModel,
-                        )
-                        EmptyBountyBoard(onRefresh = viewModel::refresh)
-                    }
-                }
-
                 else -> {
                     LazyColumn(
                         contentPadding      = PaddingValues(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        // 1. Search Bar item (scrolls off when browsing jobs)
-                        item {
-                            OutlinedTextField(
-                                value         = uiState.searchQuery,
-                                onValueChange = viewModel::search,
-                                placeholder   = { Text("Search jobs or companies…") },
-                                leadingIcon   = {
-                                    Icon(Icons.Default.Search, contentDescription = null)
-                                },
-                                singleLine     = true,
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-                                modifier       = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 2.dp),
-                            )
-                        }
-
-                        // 2. Search Parameters: Zip code & radius controls (scrolls off)
-                        item {
+                        // 1. Search Parameters: Zip code & radius controls (scrolls off)
+                        item(key = "search_params_header") {
                             SearchParametersSection(
                                 uiState   = uiState,
                                 viewModel = viewModel,
                             )
                         }
 
-                        // 3. Header stats
-                        item {
-                            BountyBoardHeader(
-                                totalJobs   = uiState.jobs.size,
-                                topScore    = uiState.jobs.firstOrNull()?.score ?: 0,
-                            )
-                        }
+                        if (uiState.jobs.isEmpty() && !uiState.isScraping) {
+                            item(key = "empty_bounty_board") {
+                                EmptyBountyBoard(onRefresh = viewModel::refresh)
+                            }
+                        } else {
+                            // 2. Header stats & Algorithmic Sort Toggle (Task 3)
+                            item(key = "bounty_board_header") {
+                                BountyBoardHeader(
+                                    totalJobs    = uiState.jobs.size,
+                                    topScore     = uiState.jobs.firstOrNull()?.score ?: 0,
+                                    sortOption   = uiState.sortOption,
+                                    onSortChange = viewModel::updateSortOption,
+                                )
+                            }
 
-                        // 4. Job listing cards
-                        items(
-                            items = uiState.jobs,
-                            key   = { it.id },
-                        ) { job ->
+                            // 3. Job listing cards
+                            items(
+                                items = uiState.jobs,
+                                key   = { it.id },
+                            ) { job ->
                             JobListingCard(
                                 job              = job,
                                 onApply          = viewModel::markApplied,
                                 onBlock          = viewModel::blockCompany,
                                 onOpenAts        = { url ->
-                                    runCatching {
-                                        val safeUrl = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)).apply {
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    scope.launch {
+                                        runCatching {
+                                            val directUrl = url.ifBlank { job.applyUrl.ifBlank { job.atsUrl } }
+                                            val validUrl = LinkValidator.validateAndResolveLaunchUrl(
+                                                company = job.company,
+                                                title = job.title,
+                                                rawUrl = directUrl,
+                                                linkStatus = job.linkStatus,
+                                            )
+                                            if (validUrl.isNotBlank()) {
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(validUrl)).apply {
+                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                }
+                                                context.startActivity(intent)
+                                            } else {
+                                                android.widget.Toast.makeText(context, "Direct ATS posting is no longer active.", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        }.onFailure {
+                                            android.widget.Toast.makeText(context, "Could not open ATS posting: $url", android.widget.Toast.LENGTH_SHORT).show()
                                         }
-                                        context.startActivity(intent)
-                                    }.onFailure {
-                                        android.widget.Toast.makeText(context, "Could not open browser for: $url", android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 },
                                 onForgeScroll    = onForgeScroll,
@@ -317,8 +415,9 @@ fun BountyBoardScreen(
                                 activeSkillNames = uiState.activeSkillNames,
                             )
                         }
+                        }
 
-                        item { Spacer(modifier = Modifier.height(80.dp)) }
+                        item(key = "bottom_spacer") { Spacer(modifier = Modifier.height(80.dp)) }
                     }
                 }
             }
@@ -337,25 +436,77 @@ fun BountyBoardScreen(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun BountyBoardHeader(totalJobs: Int, topScore: Int) {
-    Row(
-        modifier              = Modifier
+private fun BountyBoardHeader(
+    totalJobs    : Int,
+    topScore     : Int,
+    sortOption   : String = "Best Match",
+    onSortChange : (String) -> Unit = {},
+) {
+    Column(
+        modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment     = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(
-            text  = "$totalJobs quests available",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-        )
-        if (topScore > 0) {
+        Row(
+            modifier              = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment     = Alignment.CenterVertically,
+        ) {
             Text(
-                text  = "Top score: $topScore",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.primary,
+                text  = "$totalJobs quests available",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
             )
+            if (topScore > 0) {
+                Text(
+                    text  = "Top score: $topScore",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+
+        // Algorithmic Sorting Toggle Header: Latest, Closest, Best Match
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Sort by:",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = Color(0xFFFFD700),
+            )
+            val sortOptions = listOf("Latest", "Closest", "Best Match")
+            sortOptions.forEach { option ->
+                val isSelected = sortOption.equals(option, ignoreCase = true)
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (isSelected) Color(0xFFFFD700) else Color(0xFF1F1610),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isSelected) Color(0xFFFFD700) else Color(0xFF5A4632),
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onSortChange(option) },
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    ) {
+                        Text(
+                            text = option,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                            ),
+                            color = if (isSelected) Color(0xFF1A140F) else Color(0xFFE5D9B6),
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
         }
     }
 }

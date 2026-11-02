@@ -5,6 +5,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,6 +27,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
@@ -233,6 +235,7 @@ fun SkillAltarScreen(
                     categories       = uiState.categories,
                     selectedCategory = uiState.selectedCategory,
                     onSelect         = viewModel::selectCategory,
+                    onRemoveCategory = viewModel::removeCustomCategory,
                     modifier         = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
             }
@@ -451,8 +454,10 @@ private fun CategoryFilterRow(
     categories       : List<String>,
     selectedCategory : String?,
     onSelect         : (String?) -> Unit,
+    onRemoveCategory : (String) -> Unit = {},
     modifier         : Modifier = Modifier,
 ) {
+    val defaultCategories = setOf("AI & Agents", "Automation & Web", "Backend & Data")
     androidx.compose.foundation.lazy.LazyRow(
         modifier              = modifier,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -480,10 +485,23 @@ private fun CategoryFilterRow(
         items(categories.size) { i ->
             val cat = categories[i]
             val isSelected = selectedCategory == cat
+            val isCustom = defaultCategories.none { it.equals(cat, ignoreCase = true) }
             FilterChip(
                 selected = isSelected,
                 onClick  = { onSelect(if (isSelected) null else cat) },
                 label    = { Text(cat, color = if (isSelected) OsrsGold else OsrsTextDim) },
+                trailingIcon = if (isCustom) {
+                    {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Delete custom category $cat",
+                            tint = if (isSelected) OsrsGold else OsrsTextDim,
+                            modifier = Modifier
+                                .size(14.dp)
+                                .clickable { onRemoveCategory(cat) },
+                        )
+                    }
+                } else null,
                 colors   = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = OsrsBrown,
                     containerColor         = OsrsStone,

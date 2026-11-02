@@ -310,18 +310,28 @@ object ResumeForgePdfGenerator {
         if (resume.experience.isNotEmpty()) {
             canvas.drawText("PROFESSIONAL EXPERIENCE", LEFT_MARGIN, y, sectionPaint)
             y += 11f
-            for (exp in resume.experience) {
+            for (rawExp in resume.experience) {
+                val exp = TailoredResume.sanitizeExperience(rawExp)
                 val header = "${exp.employer}  |  ${exp.title}"
-                canvas.drawText(header, LEFT_MARGIN, y, boldBodyPaint)
-                y += 10f
                 val dateLoc = buildString {
                     if (!exp.startDate.isNullOrBlank()) append(exp.startDate)
                     if (!exp.endDate.isNullOrBlank()) append(" – ${exp.endDate}") else if (exp.isCurrent) append(" – Present")
                     if (!exp.location.isNullOrBlank()) append("  ·  ${exp.location}")
                 }
-                if (dateLoc.isNotBlank()) {
-                    canvas.drawText(dateLoc, LEFT_MARGIN, y, subtitlePaint)
-                    y += 9f
+                val headerWidth = boldBodyPaint.measureText(header)
+                val dateWidth = if (dateLoc.isNotBlank()) subtitlePaint.measureText(dateLoc) else 0f
+
+                if (dateLoc.isNotBlank() && (headerWidth + dateWidth + 16f <= contentWidth)) {
+                    // Right-aligned date on the same row with guaranteed separation
+                    canvas.drawText(header, LEFT_MARGIN, y, boldBodyPaint)
+                    canvas.drawText(dateLoc, LEFT_MARGIN + contentWidth - dateWidth, y, subtitlePaint)
+                    y += 11f
+                } else {
+                    y = drawWrappedText(canvas, header, LEFT_MARGIN, y, contentWidth, boldBodyPaint, bodyFontSize * 1.25f)
+                    if (dateLoc.isNotBlank()) {
+                        canvas.drawText(dateLoc, LEFT_MARGIN, y, subtitlePaint)
+                        y += 9f
+                    }
                 }
                 for (b in exp.bullets) {
                     y = drawWrappedText(canvas, "•  $b", LEFT_MARGIN + 6f, y, contentWidth - 6f, bodyPaint, bodyFontSize * 1.3f)

@@ -37,11 +37,10 @@ class ResumeTailor(
         baseResume: BaseResume,
         gitHubRepos: List<GitHubRepo> = emptyList(),
     ): TailoredResume = withContext(Dispatchers.IO) {
+        val deterministicTailored = tailorDeterministically(jobDescription, baseResume, gitHubRepos)
+
         if (!tokenGovernor.isGeminiAllowed || apiKey.isBlank()) {
-            return@withContext TailoredResume.fromBaseResume(
-                base = baseResume,
-                reason = "Gemini token budget reached or offline mode. Displaying factual base resume.",
-            )
+            return@withContext deterministicTailored
         }
 
         val baseJsonStr = json.encodeToString(baseResume)
@@ -61,7 +60,11 @@ class ResumeTailor(
             if (candidate != null) {
                 val verification = ResumeVerifier.verify(candidate, baseResume, gitHubRepos)
                 if (verification.isValid) {
-                    return@withContext candidate.copy(isTailored = true, fallbackReason = null)
+                    return@withContext candidate.copy(
+                        experience = candidate.experience.map { TailoredResume.sanitizeExperience(it) },
+                        isTailored = true,
+                        fallbackReason = null,
+                    )
                 }
 
                 android.util.Log.w("ResumeTailor", "Tailoring attempt 1 failed verification: ${verification.violations}")
@@ -78,7 +81,11 @@ class ResumeTailor(
                     if (retryCandidate != null) {
                         val retryVerification = ResumeVerifier.verify(retryCandidate, baseResume, gitHubRepos)
                         if (retryVerification.isValid) {
-                            return@withContext retryCandidate.copy(isTailored = true, fallbackReason = null)
+                            return@withContext retryCandidate.copy(
+                                experience = retryCandidate.experience.map { TailoredResume.sanitizeExperience(it) },
+                                isTailored = true,
+                                fallbackReason = null,
+                            )
                         }
                         android.util.Log.w("ResumeTailor", "Tailoring attempt 2 failed verification: ${retryVerification.violations}")
                     }
@@ -86,11 +93,152 @@ class ResumeTailor(
             }
         }
 
-        // Fail-safe: fall back to the untailored base resume with explicit reason
-        TailoredResume.fromBaseResume(
-            base = baseResume,
-            reason = "Strict fact-checking rejected hallucinated details. Reverted safely to original base resume.",
+        // Fail-safe: return deterministically re-weighted factual resume (100% grounded in BaseResume)
+        deterministicTailored
+    }
+
+    /**
+     * Deterministic, zero-hallucination domain tailoring:
+     * Analyzes the target job description against the user's master resume,
+     * prioritizes matching skills, and re-weights/reorders existing factual bullets
+     * and projects to emphasize the target role's domain (Data/SQL, AI/Agents, or Backend/SWE).
+     */
+    fun tailorDeterministically(
+        jobDescription: String,
+        baseResume: BaseResume,
+        gitHubRepos: List<GitHubRepo> = emptyList(),
+    ): TailoredResume {
+        val jdLower = jobDescription.lowercase()
+        val domainTokens = extractDomainKeywords(jdLower)
+
+        fun scoreTextRelevance(text: String): Int {
+            val lower = text.lowercase()
+            var score = 0
+            for ((keyword, weight) in domainTokens) {
+                if (lower.contains(keyword)) {
+                    score += weight
+                }
+            }
+            return score
+        }
+
+        // 1. Rank & prioritize existing factual skills by relevance to the target JD
+        val repoLanguages = gitHubRepos.flatMap { it.languages }.distinct()
+        val allCandidateSkills = (baseResume.skills + repoLanguages).distinctBy { it.lowercase().trim() }
+        val rankedSkills = allCandidateSkills.sortedByDescending { skill ->
+            val sLower = skill.lowercase()
+            val directMatch = if (jdLower.contains(sLower)) 50 else 0
+            directMatch + scoreTextRelevance(sLower)
+        }
+
+        // 2. Re-weight and reorder each employer's existing factual bullets to lead with the strongest domain match
+        val tailoredExperience = baseResume.experience.map { rawExp ->
+            val exp = TailoredResume.sanitizeExperience(rawExp)
+            val reorderedBullets = exp.bullets
+                .mapIndexed { idx, bullet -> Triple(bullet, scoreTextRelevance(bullet), idx) }
+                .sortedWith(compareByDescending<Triple<String, Int, Int>> { it.second }.thenBy { it.third })
+                .map { it.first }
+            exp.copy(bullets = reorderedBullets)
+        }
+
+        // 3. Re-weight and reorder projects & project bullets by domain match
+        val tailoredProjects = baseResume.projects
+            .mapIndexed { pIdx, proj ->
+                val reorderedBullets = proj.bullets
+                    .mapIndexed { bIdx, bullet -> Triple(bullet, scoreTextRelevance(bullet), bIdx) }
+                    .sortedWith(compareByDescending<Triple<String, Int, Int>> { it.second }.thenBy { it.third })
+                    .map { it.first }
+                val projScore = scoreTextRelevance("${proj.name} ${proj.technologies.joinToString(" ")} ${proj.bullets.joinToString(" ")}")
+                Triple(proj.copy(bullets = reorderedBullets), projScore, pIdx)
+            }
+            .sortedWith(compareByDescending<Triple<com.osrs.careerguild.core.resume.ResumeProject, Int, Int>> { it.second }.thenBy { it.third })
+            .map { it.first }
+
+        return TailoredResume(
+            contact = baseResume.contact,
+            summary = baseResume.summary ?: "",
+            skills = rankedSkills,
+            experience = tailoredExperience,
+            projects = tailoredProjects,
+            education = baseResume.education,
+            certifications = baseResume.certifications,
+            isTailored = true,
+            fallbackReason = null,
         )
+    }
+
+    /**
+     * Auto-selects the highest-matching skills from the user's Master Resume and Skill Altar
+     * for the target job description without requiring manual toggling.
+     */
+    fun selectTopInfusedSkills(
+        jobTitle: String,
+        jobDescription: String,
+        jobMatchedSkills: List<String>,
+        baseResumeSkills: List<String>,
+        altarActiveSkills: List<String>,
+        maxCount: Int = 10,
+    ): List<String> {
+        val combinedPool = (jobMatchedSkills + baseResumeSkills + altarActiveSkills)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase() }
+
+        val targetText = "$jobTitle $jobDescription ${jobMatchedSkills.joinToString(" ")}".lowercase()
+        val domainWeights = extractDomainKeywords(targetText)
+
+        val scored = combinedPool.mapIndexed { index, skill ->
+            val sLower = skill.lowercase()
+            var score = 0
+            if (jobMatchedSkills.any { it.equals(skill, ignoreCase = true) }) score += 100
+            if (targetText.contains(sLower)) score += 60
+            for ((kw, weight) in domainWeights) {
+                if (sLower.contains(kw) || kw.contains(sLower)) {
+                    score += weight
+                }
+            }
+            if (baseResumeSkills.any { it.equals(skill, ignoreCase = true) }) score += 15
+            if (altarActiveSkills.any { it.equals(skill, ignoreCase = true) }) score += 10
+            Triple(skill, score, index)
+        }
+
+        return scored
+            .sortedWith(compareByDescending<Triple<String, Int, Int>> { it.second }.thenBy { it.third })
+            .take(maxCount)
+            .map { it.first }
+    }
+
+    private fun extractDomainKeywords(jdLower: String): Map<String, Int> {
+        val weights = mutableMapOf<String, Int>()
+        val isDataRole = jdLower.contains("data") || jdLower.contains("sql") || jdLower.contains("etl") ||
+            jdLower.contains("pipeline") || jdLower.contains("database") || jdLower.contains("analytics")
+        val isAiRole = jdLower.contains("ai") || jdLower.contains("llm") || jdLower.contains("agent") ||
+            jdLower.contains("machine learning") || jdLower.contains("rag") || jdLower.contains("genai")
+        val isBackendSweRole = jdLower.contains("software") || jdLower.contains("backend") || jdLower.contains("full-stack") ||
+            jdLower.contains("full stack") || jdLower.contains("api") || jdLower.contains("engineer")
+
+        if (isDataRole) {
+            listOf("pipeline", "sql", "postgresql", "mysql", "mongodb", "database", "data", "synchronization", "etl", "modeling", "airflow", "python").forEach {
+                weights[it] = (weights[it] ?: 0) + 18
+            }
+        }
+        if (isAiRole) {
+            listOf("ai", "agent", "agentic", "llm", "rag", "gemini", "prompt", "python", "automation", "copilot", "cursor").forEach {
+                weights[it] = (weights[it] ?: 0) + 18
+            }
+        }
+        if (isBackendSweRole) {
+            listOf("api", "full stack", "full-stack", "python", "javascript", "kotlin", "modular", "architecture", "scalability", "reliability", "integration", "docker", "git", "ci/cd").forEach {
+                weights[it] = (weights[it] ?: 0) + 15
+            }
+        }
+        // Also extract individual significant tokens from the JD
+        Regex("[a-z0-9+#./-]{3,}").findAll(jdLower).map { it.value }.forEach { token ->
+            if (token !in setOf("the", "and", "for", "with", "you", "will", "are", "our", "that", "this", "from", "have", "work", "team", "role")) {
+                weights[token] = (weights[token] ?: 0) + 4
+            }
+        }
+        return weights
     }
 
     private fun buildPrompt(

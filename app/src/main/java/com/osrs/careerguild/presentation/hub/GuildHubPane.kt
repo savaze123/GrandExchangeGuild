@@ -288,28 +288,41 @@ private fun FloatingBuildingBillboards(
                     }
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    val (icon, name) = when (building) {
-                        GuildBuilding.BOUNTY_BOARD  -> "📜" to "Bounty Board"
-                        GuildBuilding.SCRIBE_TOWER  -> "🏛️" to "Scribe Tower"
-                        GuildBuilding.SKILL_ALTAR   -> "✨" to "Skill Altar"
-                        GuildBuilding.COURIER_GUILD -> "📦" to "Courier Guild"
+                    val (icon, name, subtitle) = when (building) {
+                        GuildBuilding.BOUNTY_BOARD  -> Triple("📜", "Bounty Board", "Job Postings")
+                        GuildBuilding.SCRIBE_TOWER  -> Triple("🏛️", "Scribe Tower", "Resume Forge")
+                        GuildBuilding.SKILL_ALTAR   -> Triple("✨", "Skill Altar", "Skill Matrix")
+                        GuildBuilding.COURIER_GUILD -> Triple("📦", "Courier Guild", "Auto-Apply")
                     }
                     Text(
                         text = icon,
                         fontSize = 14.sp,
                     )
-                    Text(
-                        text = name,
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.3.sp,
-                        ),
-                        color = OsrsGold,
-                    )
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(0.dp),
+                    ) {
+                        Text(
+                            text = name,
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.3.sp,
+                            ),
+                            color = OsrsGold,
+                        )
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Medium,
+                                letterSpacing = 0.2.sp,
+                            ),
+                            color = Color(0xFFE5D9B6),
+                        )
+                    }
                 }
             }
         }

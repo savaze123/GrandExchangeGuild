@@ -34,4 +34,13 @@ interface SkillRepository {
 
     /** Seed the vault with the user's preloaded skills from project_graph.json meta. */
     suspend fun seedDefaultSkills(skills: List<Skill>): Result<Unit>
+
+    /**
+     * Strict Set-Union merge of newly extracted resume skills into Room.
+     * Normalizes skill strings (case-insensitive, trimmed, alias-aware) and auto-categorizes
+     * new entries without overwriting existing skills or creating duplicate entries.
+     *
+     * @return Count of newly inserted unique skills.
+     */
+    suspend fun mergeResumeSkills(rawSkills: Collection<String>): Result<Int> = Result.success(0)
 }

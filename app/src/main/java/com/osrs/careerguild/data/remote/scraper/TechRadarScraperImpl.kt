@@ -147,15 +147,9 @@ class TechRadarScraperImpl(
                 }
             }
 
-            // 3. Guaranteed High-Signal Seed Fallback & Augmentation (Ensuring 100+ verified quests)
-            val guaranteedSeeds = getGuaranteedSeedQuests(activeSkillNames, activeSkillLower)
-                .filter { !blockedNames.contains(it.company.lowercase()) }
-
-            val combined = if (directlyVerified.size < 100) {
-                android.util.Log.i("TechRadar", "Live feeds returned ${directlyVerified.size} direct listings (< 100). Augmenting with verified high-signal seed pool.")
-                directlyVerified + guaranteedSeeds
-            } else {
-                directlyVerified
+            // 3. Strict Direct ATS Filtering (Task 2: only live validated ATS URLs, zero search fallbacks or dead seeds)
+            val combined = directlyVerified.filter { job ->
+                LinkValidator.isValidDirectAtsUrl(job.applyUrl.ifBlank { job.atsUrl }, job.linkStatus)
             }
 
             // 4. Deduplicate by canonical URL and company + title
@@ -470,11 +464,17 @@ class TechRadarScraperImpl(
                 val matchBonus = matched.size * 3
                 val finalScore = minOf(99, maxOf(89, baseScore + matchBonus))
 
+                val resolvedSeedUrl = LinkValidator.resolveLaunchUrl(
+                    company = seed.company,
+                    title = seed.title,
+                    rawUrl = seed.url,
+                    linkStatus = "SEED",
+                )
                 JobListing(
                     id            = "linkedin_${seed.company.lowercase()}_${seed.title.lowercase()}".hashToId(),
                     title         = seed.title,
                     company       = seed.company,
-                    atsUrl        = seed.url,
+                    atsUrl        = resolvedSeedUrl,
                     source        = "LinkedIn (Direct)",
                     score         = finalScore,
                     matchedSkills = if (matched.isNotEmpty()) matched else (activeSkillNames.take(3) + listOf("Software Engineering", "Cloud")).distinct(),
@@ -483,7 +483,7 @@ class TechRadarScraperImpl(
                     description   = generateJobDescription(seed.company, seed.title, seed.location, matched),
                     location      = seed.location,
                     workMode      = seed.workMode,
-                    applyUrl      = seed.url,
+                    applyUrl      = resolvedSeedUrl,
                     linkStatus    = "SEED",
                 )
             }
@@ -1101,11 +1101,17 @@ class TechRadarScraperImpl(
                 seed.atsUrl.contains("ashbyhq.com") -> "Ashby (Direct)"
                 else -> "SimplifyJobs (Direct)"
             }
+            val resolvedSeedUrl = LinkValidator.resolveLaunchUrl(
+                company = seed.company,
+                title = seed.title,
+                rawUrl = seed.atsUrl,
+                linkStatus = "SEED",
+            )
             JobListing(
                 id            = "${seed.company.lowercase()}_${seed.title.lowercase()}".hashToId(),
                 title         = seed.title,
                 company       = seed.company,
-                atsUrl        = seed.atsUrl,
+                atsUrl        = resolvedSeedUrl,
                 source        = sourceLabel,
                 score         = matchScore,
                 matchedSkills = if (matched.isNotEmpty()) matched else seed.targetSkills.take(3),
@@ -1114,7 +1120,7 @@ class TechRadarScraperImpl(
                 description   = generateJobDescription(seed.company, seed.title, seed.location, matched),
                 location      = seed.location,
                 workMode      = seed.workMode,
-                applyUrl      = seed.atsUrl,
+                applyUrl      = resolvedSeedUrl,
                 linkStatus    = "SEED",
             )
         }

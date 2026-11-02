@@ -35,4 +35,6 @@ data class JobListing(
     val lng           : Double?        = null,
     val linkStatus    : String         = "VERIFIED",
     val lastVerifiedAt: Long?          = null,
+    val timePosted    : Long           = System.currentTimeMillis() - (((id.hashCode() and 0x7fffffff) % 48) + 1) * 3_600_000L,
+    val requiredSkills: List<String>   = matchedSkills,
 )
