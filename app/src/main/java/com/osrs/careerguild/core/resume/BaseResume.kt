@@ -15,7 +15,18 @@ data class BaseResume(
     val certifications: List<ResumeCertification> = emptyList(),
     val projects: List<ResumeProject> = emptyList(),
     val skills: List<String> = emptyList(),
-)
+) {
+    /**
+     * Returns a copy of this [BaseResume] containing only active (`isActive == true`)
+     * Experience, Projects, Education, and Certifications items.
+     */
+    fun activeOnly(): BaseResume = copy(
+        experience = experience.filter { it.isActive },
+        education = education.filter { it.isActive },
+        certifications = certifications.filter { it.isActive },
+        projects = projects.filter { it.isActive },
+    )
+}
 
 @Serializable
 data class ResumeContact(
@@ -37,6 +48,7 @@ data class ResumeExperience(
     val endDate: String? = null,
     val isCurrent: Boolean = false,
     val bullets: List<String> = emptyList(),
+    val isActive: Boolean = true,
 )
 
 @Serializable
@@ -47,6 +59,7 @@ data class ResumeEducation(
     val graduationDate: String? = null,
     val gpa: String? = null,
     val details: List<String> = emptyList(),
+    val isActive: Boolean = true,
 )
 
 @Serializable
@@ -56,6 +69,7 @@ data class ResumeCertification(
     val issueDate: String? = null,
     val credentialId: String? = null,
     val details: List<String> = emptyList(),
+    val isActive: Boolean = true,
 )
 
 @Serializable
@@ -65,4 +79,5 @@ data class ResumeProject(
     val technologies: List<String> = emptyList(),
     val url: String? = null,
     val bullets: List<String> = emptyList(),
+    val isActive: Boolean = true,
 )

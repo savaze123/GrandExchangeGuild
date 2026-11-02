@@ -25,9 +25,9 @@
 - core/token/TokenGovernor.kt: Gemini API budget guard
 - core/vision/AntiGravityScreenShareManager.kt: viewport telemetry
 - core/cli/: CliCommand.kt, CliParser.kt, CliDispatcher.kt, CliResult.kt
-- data/local/CareerGuildDatabase.kt: SQLCipher Room DB (JobDao.kt, SkillDao.kt, BlockedCompanyDao.kt)
+- data/local/CareerGuildDatabase.kt: SQLCipher Room DB (JobDao.kt, SkillDao.kt, BlockedCompanyDao.kt, CourierAccountDao.kt, CourierAccountEntity.kt)
 - data/remote/scraper/: JobFeedSource.kt, GeoFilter.kt, TechRadarScraperImpl.kt (large)
-- data/repository/: JobRepositoryImpl.kt, SkillRepositoryImpl.kt
+- data/repository/: JobRepositoryImpl.kt, SkillRepositoryImpl.kt, CourierRepository.kt
 - domain/model/: GuildBuilding.kt, JobListing.kt, Skill.kt
 - domain/scorer/: TrajectoryScorer.kt, GeminiTrajectoryScorer.kt
 - domain/usecase/bountyboard/: FetchAndScoreJobsUseCase.kt, BlockCompanyUseCase.kt, MarkAppliedUseCase.kt
@@ -38,7 +38,7 @@
 - presentation/dashboard/bountyboard/: BountyBoardScreen.kt, BountyBoardViewModel.kt, BountyBoardUiState.kt, JobListingCard.kt
 - presentation/dashboard/scribetower/ScribeTowerScreen.kt (large): resume upload and ATS preview
 - presentation/dashboard/skillaltar/: SkillAltarScreen.kt, SkillAltarViewModel.kt, SkillAltarUiState.kt, SkillCard.kt
-- presentation/dashboard/courierguild/CourierGuildScreen.kt (large): auto-apply ledger and PDF dialog
+- presentation/dashboard/courierguild/: CourierGuildScreen.kt (large), CourierAutoApplyDispatcher.kt, CourierAgentConfig.kt: auto-apply ledger, LinkedIn exclusion, vault credentials, execution breakdown, and PDF dialog
 - core/resume/: BaseResume.kt, ResumeTextExtractor.kt, ResumeStructurer.kt, BaseResumeRepository.kt
 - core/github/GitHubProfileFetcher.kt
 - domain/resume/: ResumeTailor.kt, ResumeVerifier.kt, TailoredResume.kt

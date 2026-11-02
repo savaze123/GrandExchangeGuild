@@ -4,11 +4,13 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import com.osrs.careerguild.data.local.dao.BaseResumeDao
 import com.osrs.careerguild.data.local.dao.BlockedCompanyDao
+import com.osrs.careerguild.data.local.dao.CourierAccountDao
 import com.osrs.careerguild.data.local.dao.GitHubRepoDao
 import com.osrs.careerguild.data.local.dao.JobDao
 import com.osrs.careerguild.data.local.dao.SkillDao
 import com.osrs.careerguild.data.local.entity.BaseResumeEntity
 import com.osrs.careerguild.data.local.entity.BlockedCompanyEntity
+import com.osrs.careerguild.data.local.entity.CourierAccountEntity
 import com.osrs.careerguild.data.local.entity.GitHubRepoEntity
 import com.osrs.careerguild.data.local.entity.JobEntity
 import com.osrs.careerguild.data.local.entity.SkillEntity
@@ -36,8 +38,9 @@ import com.osrs.careerguild.data.local.entity.SkillEntity
         BlockedCompanyEntity::class,
         BaseResumeEntity::class,
         GitHubRepoEntity::class,
+        CourierAccountEntity::class,
     ],
-    version      = 3,
+    version      = 4,
     exportSchema = false,
 )
 abstract class CareerGuildDatabase : RoomDatabase() {
@@ -47,6 +50,7 @@ abstract class CareerGuildDatabase : RoomDatabase() {
     abstract fun blockedCompanyDao(): BlockedCompanyDao
     abstract fun baseResumeDao(): BaseResumeDao
     abstract fun gitHubRepoDao(): GitHubRepoDao
+    abstract fun courierAccountDao(): CourierAccountDao
 
     companion object {
         init {

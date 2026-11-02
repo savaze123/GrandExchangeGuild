@@ -66,6 +66,7 @@ class AppContainer(context: Context) {
     private val blockedCompanyDao = db.blockedCompanyDao()
     private val baseResumeDao     = db.baseResumeDao()
     val gitHubRepoDao             = db.gitHubRepoDao()
+    val courierAccountDao         = db.courierAccountDao()
 
     // ---------------------------------------------------------------------------
     // Repositories (domain interfaces)
@@ -73,6 +74,7 @@ class AppContainer(context: Context) {
 
     val skillRepository      = SkillRepositoryImpl(skillDao)
     val jobRepository        = JobRepositoryImpl(jobDao, blockedCompanyDao)
+    val courierRepository    = com.osrs.careerguild.data.repository.CourierRepository(httpClient)
     val baseResumeRepository : BaseResumeRepository = BaseResumeRepositoryImpl(baseResumeDao)
     val resumeTextExtractor  = ResumeTextExtractor(appContext)
     val resumeStructurer     = ResumeStructurer(tokenGovernor)

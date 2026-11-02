@@ -9,6 +9,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -43,6 +44,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,17 +53,22 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import android.widget.Toast
 import com.osrs.careerguild.core.profile.UserProfile
 import com.osrs.careerguild.core.profile.UserProfileManager
+import com.osrs.careerguild.di.LocalAppContainer
+import com.osrs.careerguild.presentation.dashboard.scribetower.ModularResumeSectionsToggleCard
+import kotlinx.coroutines.launch
 import com.google.android.filament.Engine
 import com.google.android.filament.EntityManager
 import com.google.android.filament.LightManager
@@ -126,7 +133,8 @@ data class FloatingCharacterDialogue(
 )
 
 /**
- * Interactive Camera Controller managing 360° orbit yaw, elevation perspective pitch, and dynamic zoom distance.
+ * Interactive Camera Controller managing 360° orbit yaw, elevation perspective pitch,
+ * dynamic zoom distance, and toggleable First-Person Citadel Navigation (Section 4).
  */
 class CameraController(
     initialYaw: Float = (Math.PI * 0.25).toFloat(),
@@ -137,9 +145,71 @@ class CameraController(
     var pitch by mutableFloatStateOf(initialPitch)
     var distance by mutableFloatStateOf(initialDistance)
 
+    // Section 4: First-Person Camera Mode state & Virtual Analog Joystick vectors
+    var isFirstPersonMode by mutableStateOf(false)
+    var fpEyeX by mutableFloatStateOf(0.0f)
+    var fpEyeY by mutableFloatStateOf(0.09f)
+    var fpEyeZ by mutableFloatStateOf(0.28f)
+    var fpYaw by mutableFloatStateOf(0.0f)
+    var fpPitch by mutableFloatStateOf(0.04f)
+    var joystickDeltaX by mutableFloatStateOf(0.0f)
+    var joystickDeltaY by mutableFloatStateOf(0.0f)
+
     var manipulator: Manipulator? = null
     var viewportWidth: Int = 1080
     var viewportHeight: Int = 1080
+
+    fun toggleFirstPersonMode() {
+        isFirstPersonMode = !isFirstPersonMode
+        if (isFirstPersonMode) {
+            fpEyeX = 0.0f
+            fpEyeY = 0.09f
+            fpEyeZ = 0.28f
+            fpYaw = 0.0f
+            fpPitch = 0.04f
+        }
+        joystickDeltaX = 0f
+        joystickDeltaY = 0f
+    }
+
+    fun updateJoystick(normX: Float, normY: Float) {
+        joystickDeltaX = normX.coerceIn(-1f, 1f)
+        joystickDeltaY = normY.coerceIn(-1f, 1f)
+    }
+
+    fun rotateFirstPersonLook(deltaYawRad: Float, deltaPitchRad: Float) {
+        fpYaw += deltaYawRad
+        fpPitch = (fpPitch + deltaPitchRad).coerceIn(-0.65f, 0.75f)
+    }
+
+    /**
+     * Maps the virtual analog joystick's X/Y delta to the 3D camera's translation
+     * (forward/backward + strafe) and yaw rotation vectors on each 120Hz frame.
+     */
+    fun stepFirstPersonMovement(dtSec: Float = 1f / 120f) {
+        if (!isFirstPersonMode) return
+        val jx = joystickDeltaX
+        val jy = joystickDeltaY
+        if (kotlin.math.abs(jx) < 0.01f && kotlin.math.abs(jy) < 0.01f) return
+
+        val moveSpeed = 0.28f
+        val turnSpeed = 1.45f
+
+        // Map X delta to camera yaw rotation + subtle strafe
+        fpYaw -= jx * turnSpeed * dtSec
+
+        val forwardX = -sin(fpYaw)
+        val forwardZ = -cos(fpYaw)
+        val rightX = cos(fpYaw)
+        val rightZ = -sin(fpYaw)
+
+        // Map Y delta (up is negative screen Y -> forward movement) and X delta to translation
+        val forwardStep = (-jy) * moveSpeed * dtSec
+        val strafeStep = jx * (moveSpeed * 0.35f) * dtSec
+
+        fpEyeX = (fpEyeX + forwardX * forwardStep + rightX * strafeStep).coerceIn(-0.42f, 0.42f)
+        fpEyeZ = (fpEyeZ + forwardZ * forwardStep + rightZ * strafeStep).coerceIn(-0.42f, 0.42f)
+    }
 
     /**
      * Dial notch zoom step.
@@ -168,6 +238,14 @@ class CameraController(
     }
 
     fun reset() {
+        isFirstPersonMode = false
+        fpEyeX = 0.0f
+        fpEyeY = 0.09f
+        fpEyeZ = 0.28f
+        fpYaw = 0.0f
+        fpPitch = 0.04f
+        joystickDeltaX = 0f
+        joystickDeltaY = 0f
         manipulator?.homeBookmark?.let {
             manipulator?.jumpToBookmark(it)
         }
@@ -246,6 +324,16 @@ fun GuildHubPane(
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, bottom = 80.dp),
         )
+
+        // 4b. Section 4: Virtual Analog Joystick for 3D Citadel First-Person Navigation (Bottom-Left)
+        if (cameraController.isFirstPersonMode) {
+            FirstPersonVirtualJoystick(
+                cameraController = cameraController,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 16.dp, bottom = 80.dp),
+            )
+        }
 
         // 5. Main Settings / Configuration Tab (Triggered by Kid Gohan riding the Flying Nimbus)
         if (showSettingsModal) {
@@ -478,12 +566,145 @@ private fun CameraControlsToolbar(
                 contentDescription = "Cycle Perspective",
                 onClick = { cameraController.cyclePerspective() },
             )
+            // Section 4: Toggleable First-Person Citadel Navigation Mode
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = if (cameraController.isFirstPersonMode) Color(0xFF0A2E38) else OsrsStone,
+                border = BorderStroke(
+                    1.5.dp,
+                    if (cameraController.isFirstPersonMode) OsrsCyan else OsrsGold.copy(alpha = 0.8f),
+                ),
+                modifier = Modifier
+                    .size(46.dp)
+                    .clickable {
+                        cameraController.toggleFirstPersonMode()
+                        val manip = cameraController.manipulator
+                        val w = cameraController.viewportWidth.coerceAtLeast(100)
+                        val h = cameraController.viewportHeight.coerceAtLeast(100)
+                        if (cameraController.isFirstPersonMode) {
+                            // Bring camera down to eye-level on the Lookout plaza
+                            manip?.scroll(w / 2, h / 2, -160.0f)
+                        } else {
+                            manip?.homeBookmark?.let { manip.jumpToBookmark(it) }
+                        }
+                    },
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    Text(
+                        text = if (cameraController.isFirstPersonMode) "1P" else "🕹️",
+                        color = if (cameraController.isFirstPersonMode) OsrsCyan else OsrsGold,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+            }
             CameraControlButton(
                 text = "☁️",
                 contentDescription = "Profile & Resume Settings (Kid Gohan)",
                 onClick = onOpenSettings,
             )
         }
+    }
+}
+
+/**
+ * Section 4: Virtual Analog Joystick composable using `pointerInput` (`detectDragGestures`).
+ * Maps the joystick's X/Y delta to the 3D camera's translation and rotation vectors in First-Person Mode.
+ */
+@Composable
+private fun FirstPersonVirtualJoystick(
+    cameraController: CameraController,
+    modifier: Modifier = Modifier,
+) {
+    val maxRadiusPx = 95f
+    var knobOffset by remember { mutableStateOf(Offset.Zero) }
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = OsrsDarkStone.copy(alpha = 0.92f),
+            border = BorderStroke(1.dp, OsrsCyan),
+        ) {
+            Text(
+                text = "🕹️ 1ST-PERSON NAV",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                color = OsrsCyan,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+        }
+
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(112.dp)
+                .background(OsrsDarkStone.copy(alpha = 0.82f), CircleShape)
+                .border(2.dp, OsrsGold.copy(alpha = 0.85f), CircleShape)
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { },
+                        onDragEnd = {
+                            knobOffset = Offset.Zero
+                            cameraController.updateJoystick(0f, 0f)
+                        },
+                        onDragCancel = {
+                            knobOffset = Offset.Zero
+                            cameraController.updateJoystick(0f, 0f)
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            val raw = knobOffset + dragAmount
+                            val dist = kotlin.math.hypot(raw.x, raw.y)
+                            val clamped = if (dist > maxRadiusPx && dist > 0f) {
+                                Offset(raw.x / dist * maxRadiusPx, raw.y / dist * maxRadiusPx)
+                            } else {
+                                raw
+                            }
+                            knobOffset = clamped
+                            cameraController.updateJoystick(
+                                normX = (clamped.x / maxRadiusPx).coerceIn(-1f, 1f),
+                                normY = (clamped.y / maxRadiusPx).coerceIn(-1f, 1f),
+                            )
+                        },
+                    )
+                },
+        ) {
+            // Center crosshair ring
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .border(1.dp, OsrsCyan.copy(alpha = 0.35f), CircleShape),
+            )
+            // Movable analog thumbstick knob
+            Box(
+                modifier = Modifier
+                    . intOffsetKnob(knobOffset)
+                    .size(42.dp)
+                    .background(OsrsGold.copy(alpha = 0.92f), CircleShape)
+                    .border(1.5.dp, OsrsDarkBorder, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "✥",
+                    color = Color.Black,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+    }
+}
+
+private fun Modifier.intOffsetKnob(offset: Offset): Modifier = this.layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints)
+    layout(placeable.width, placeable.height) {
+        placeable.place(offset.x.roundToInt(), offset.y.roundToInt())
     }
 }
 
@@ -856,6 +1077,25 @@ private fun FilamentLivingTown(
                             val timeSec = (System.currentTimeMillis() % 600000L) / 1000.0f
                             val w = width.toFloat()
                             val h = height.toFloat()
+
+                            // Section 4: Apply First-Person Virtual Analog Joystick X/Y delta to 3D camera translation & rotation
+                            if (cameraController.isFirstPersonMode && w > 0f && h > 0f) {
+                                cameraController.stepFirstPersonMovement(1f / 120f)
+                                val jx = cameraController.joystickDeltaX
+                                val jy = cameraController.joystickDeltaY
+                                val cx = (w * 0.5f).toInt()
+                                val cy = (h * 0.5f).toInt()
+                                if (kotlin.math.abs(jy) > 0.02f) {
+                                    // Forward/backward translation along look vector
+                                    manipulator.scroll(cx, cy, jy * 9.5f)
+                                }
+                                if (kotlin.math.abs(jx) > 0.02f) {
+                                    // Horizontal rotation & strafe vector
+                                    manipulator.grabBegin(cx, cy, false)
+                                    manipulator.grabUpdate(cx - (jx * 14f).toInt(), cy)
+                                    manipulator.grabEnd()
+                                }
+                            }
 
                             // Read live camera state from manipulator
                             try {
@@ -1506,6 +1746,9 @@ private fun GuildSettingsDialog(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    val appContainer = LocalAppContainer.current
+    val baseResume by appContainer.baseResumeRepository.observeBaseResume().collectAsState(initial = null)
+    val coroutineScope = rememberCoroutineScope()
     val profileManager = remember { UserProfileManager.getInstance(context) }
     val currentProfile = remember { profileManager.profile.value }
 
@@ -1660,6 +1903,21 @@ private fun GuildSettingsDialog(
                                 )
                             )
                         }
+                    }
+                }
+
+                // Section 3: Modular Profile Toggling (Experience, Projects, Education, Certifications)
+                if (baseResume != null) {
+                    item {
+                        ModularResumeSectionsToggleCard(
+                            baseResume = baseResume!!,
+                            onUpdateBaseResume = { updatedResume ->
+                                coroutineScope.launch {
+                                    val raw = appContainer.baseResumeRepository.getRawText() ?: ""
+                                    appContainer.baseResumeRepository.saveConfirmedResume(raw, updatedResume)
+                                }
+                            },
+                        )
                     }
                 }
             }

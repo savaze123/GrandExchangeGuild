@@ -37,13 +37,14 @@ class ResumeTailor(
         baseResume: BaseResume,
         gitHubRepos: List<GitHubRepo> = emptyList(),
     ): TailoredResume = withContext(Dispatchers.IO) {
-        val deterministicTailored = tailorDeterministically(jobDescription, baseResume, gitHubRepos)
+        val activeBase = baseResume.activeOnly()
+        val deterministicTailored = tailorDeterministically(jobDescription, activeBase, gitHubRepos)
 
         if (!tokenGovernor.isGeminiAllowed || apiKey.isBlank()) {
             return@withContext deterministicTailored
         }
 
-        val baseJsonStr = json.encodeToString(baseResume)
+        val baseJsonStr = json.encodeToString(activeBase)
         val reposSummary = gitHubRepos.take(10).joinToString("\n") { repo ->
             "- ${repo.name}: ${repo.description ?: "Software project"} (Languages: ${repo.languages.joinToString(", ")}; URL: ${repo.htmlUrl})"
         }
@@ -58,10 +59,13 @@ class ResumeTailor(
             tokenGovernor.recordScoringBatch(1)
             val candidate = parseCandidate(firstResponse)
             if (candidate != null) {
-                val verification = ResumeVerifier.verify(candidate, baseResume, gitHubRepos)
+                val verification = ResumeVerifier.verify(candidate, activeBase, gitHubRepos)
                 if (verification.isValid) {
                     return@withContext candidate.copy(
-                        experience = candidate.experience.map { TailoredResume.sanitizeExperience(it) },
+                        experience = candidate.experience.filter { it.isActive }.map { TailoredResume.sanitizeExperience(it) },
+                        projects = candidate.projects.filter { it.isActive },
+                        education = candidate.education.filter { it.isActive },
+                        certifications = candidate.certifications.filter { it.isActive },
                         isTailored = true,
                         fallbackReason = null,
                     )
@@ -79,10 +83,13 @@ class ResumeTailor(
                     tokenGovernor.recordScoringBatch(1)
                     val retryCandidate = parseCandidate(secondResponse)
                     if (retryCandidate != null) {
-                        val retryVerification = ResumeVerifier.verify(retryCandidate, baseResume, gitHubRepos)
+                        val retryVerification = ResumeVerifier.verify(retryCandidate, activeBase, gitHubRepos)
                         if (retryVerification.isValid) {
                             return@withContext retryCandidate.copy(
-                                experience = retryCandidate.experience.map { TailoredResume.sanitizeExperience(it) },
+                                experience = retryCandidate.experience.filter { it.isActive }.map { TailoredResume.sanitizeExperience(it) },
+                                projects = retryCandidate.projects.filter { it.isActive },
+                                education = retryCandidate.education.filter { it.isActive },
+                                certifications = retryCandidate.certifications.filter { it.isActive },
                                 isTailored = true,
                                 fallbackReason = null,
                             )
@@ -131,8 +138,8 @@ class ResumeTailor(
             directMatch + scoreTextRelevance(sLower)
         }
 
-        // 2. Re-weight and reorder each employer's existing factual bullets to lead with the strongest domain match
-        val tailoredExperience = baseResume.experience.map { rawExp ->
+        // 2. Re-weight and reorder each active employer's existing factual bullets to lead with the strongest domain match
+        val tailoredExperience = baseResume.experience.filter { it.isActive }.map { rawExp ->
             val exp = TailoredResume.sanitizeExperience(rawExp)
             val reorderedBullets = exp.bullets
                 .mapIndexed { idx, bullet -> Triple(bullet, scoreTextRelevance(bullet), idx) }
@@ -141,8 +148,8 @@ class ResumeTailor(
             exp.copy(bullets = reorderedBullets)
         }
 
-        // 3. Re-weight and reorder projects & project bullets by domain match
-        val tailoredProjects = baseResume.projects
+        // 3. Re-weight and reorder active projects & project bullets by domain match
+        val tailoredProjects = baseResume.projects.filter { it.isActive }
             .mapIndexed { pIdx, proj ->
                 val reorderedBullets = proj.bullets
                     .mapIndexed { bIdx, bullet -> Triple(bullet, scoreTextRelevance(bullet), bIdx) }
@@ -160,8 +167,8 @@ class ResumeTailor(
             skills = rankedSkills,
             experience = tailoredExperience,
             projects = tailoredProjects,
-            education = baseResume.education,
-            certifications = baseResume.certifications,
+            education = baseResume.education.filter { it.isActive },
+            certifications = baseResume.certifications.filter { it.isActive },
             isTailored = true,
             fallbackReason = null,
         )

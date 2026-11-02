@@ -410,7 +410,14 @@ fun BountyBoardScreen(
                                     }
                                 },
                                 onForgeScroll    = onForgeScroll,
-                                onQueueAutoApply = onQueueAutoApply,
+                                onQueueAutoApply = { targetJob ->
+                                    if (com.osrs.careerguild.presentation.dashboard.courierguild.CourierAutoApplyDispatcher.isExcludedFromAutoApply(targetJob)) {
+                                        val directUrl = targetJob.applyUrl.ifBlank { targetJob.atsUrl }
+                                        com.osrs.careerguild.presentation.dashboard.courierguild.CourierAutoApplyDispatcher.routeToExternalManualApply(context, directUrl)
+                                    } else {
+                                        onQueueAutoApply(targetJob)
+                                    }
+                                },
                                 userZipCode      = uiState.zipCode.ifBlank { "11581" },
                                 activeSkillNames = uiState.activeSkillNames,
                             )

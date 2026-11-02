@@ -45,6 +45,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -305,6 +307,21 @@ fun ScribeTowerScreen(
                         }
                     },
                 )
+            }
+
+            // 3b. Section 3: Modular Profile Toggling (Experience, Projects, Education, Certifications)
+            if (baseResume != null) {
+                item {
+                    ModularResumeSectionsToggleCard(
+                        baseResume = baseResume!!,
+                        onUpdateBaseResume = { updatedResume ->
+                            scope.launch {
+                                val raw = baseResumeRepo.getRawText() ?: ""
+                                baseResumeRepo.saveConfirmedResume(raw, updatedResume)
+                            }
+                        },
+                    )
+                }
             }
 
             // 4. Custom Summary / Notes Input
@@ -962,4 +979,181 @@ private fun queryFileName(context: Context, uri: Uri): String? {
         }
     } catch (_: Exception) {}
     return name
+}
+
+/**
+ * Section 3: Modular Profile Toggling UI for Experience, Projects, Education, and Certifications.
+ * Reusable in both Scribe Tower and Profile Settings (`GuildSettingsDialog`).
+ */
+@Composable
+fun ModularResumeSectionsToggleCard(
+    baseResume: BaseResume,
+    onUpdateBaseResume: (BaseResume) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var isExpanded by remember { mutableStateOf(false) }
+
+    val activeExp = baseResume.experience.count { it.isActive }
+    val activeProj = baseResume.projects.count { it.isActive }
+    val activeEdu = baseResume.education.count { it.isActive }
+    val activeCert = baseResume.certifications.count { it.isActive }
+
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = OsrsStone),
+        border = BorderStroke(1.2.dp, OsrsGold.copy(alpha = 0.75f)),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = !isExpanded },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "🎛 MODULAR PROFILE SECTION TOGGLES",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.4.sp),
+                        color = OsrsGold,
+                    )
+                    Text(
+                        text = "Active: $activeExp/${baseResume.experience.size} Exp · $activeProj/${baseResume.projects.size} Proj · $activeEdu/${baseResume.education.size} Edu · $activeCert/${baseResume.certifications.size} Certs",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                        color = Color(0xFF81C784),
+                    )
+                }
+                Text(
+                    text = if (isExpanded) "▲ Hide" else "▼ Configure",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFF00E5FF),
+                )
+            }
+
+            if (isExpanded) {
+                if (baseResume.experience.isNotEmpty()) {
+                    Text(
+                        text = "Experience",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = OsrsGold,
+                    )
+                    baseResume.experience.forEachIndexed { idx, exp ->
+                        ModularToggleRow(
+                            title = "${exp.employer} — ${exp.title}",
+                            isChecked = exp.isActive,
+                            onCheckedChange = { checked ->
+                                val updatedList = baseResume.experience.mapIndexed { i, item ->
+                                    if (i == idx) item.copy(isActive = checked) else item
+                                }
+                                onUpdateBaseResume(baseResume.copy(experience = updatedList))
+                            },
+                        )
+                    }
+                }
+
+                if (baseResume.projects.isNotEmpty()) {
+                    Text(
+                        text = "Projects",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = OsrsGold,
+                    )
+                    baseResume.projects.forEachIndexed { idx, proj ->
+                        ModularToggleRow(
+                            title = proj.name,
+                            isChecked = proj.isActive,
+                            onCheckedChange = { checked ->
+                                val updatedList = baseResume.projects.mapIndexed { i, item ->
+                                    if (i == idx) item.copy(isActive = checked) else item
+                                }
+                                onUpdateBaseResume(baseResume.copy(projects = updatedList))
+                            },
+                        )
+                    }
+                }
+
+                if (baseResume.education.isNotEmpty()) {
+                    Text(
+                        text = "Education",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = OsrsGold,
+                    )
+                    baseResume.education.forEachIndexed { idx, edu ->
+                        ModularToggleRow(
+                            title = "${edu.school} (${edu.degree})",
+                            isChecked = edu.isActive,
+                            onCheckedChange = { checked ->
+                                val updatedList = baseResume.education.mapIndexed { i, item ->
+                                    if (i == idx) item.copy(isActive = checked) else item
+                                }
+                                onUpdateBaseResume(baseResume.copy(education = updatedList))
+                            },
+                        )
+                    }
+                }
+
+                if (baseResume.certifications.isNotEmpty()) {
+                    Text(
+                        text = "Certifications",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = OsrsGold,
+                    )
+                    baseResume.certifications.forEachIndexed { idx, cert ->
+                        ModularToggleRow(
+                            title = cert.name,
+                            isChecked = cert.isActive,
+                            onCheckedChange = { checked ->
+                                val updatedList = baseResume.certifications.mapIndexed { i, item ->
+                                    if (i == idx) item.copy(isActive = checked) else item
+                                }
+                                onUpdateBaseResume(baseResume.copy(certifications = updatedList))
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModularToggleRow(
+    title: String,
+    isChecked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = OsrsDarkStone,
+        border = BorderStroke(0.8.dp, if (isChecked) Color(0xFF4CAF50).copy(alpha = 0.6f) else OsrsDarkBorder),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = if (isChecked) Color.White else OsrsTextDim,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Switch(
+                checked = isChecked,
+                onCheckedChange = onCheckedChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = OsrsGold,
+                    checkedTrackColor = Color(0xFF1B3B22),
+                ),
+            )
+        }
+    }
 }

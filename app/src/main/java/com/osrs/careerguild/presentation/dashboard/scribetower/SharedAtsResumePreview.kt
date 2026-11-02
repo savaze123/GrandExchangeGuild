@@ -90,7 +90,12 @@ fun SharedAtsResumePreview(
 
             Spacer(modifier = Modifier.height(2.dp))
 
-            val isEmpty = resume.experience.isEmpty() && resume.projects.isEmpty() && resume.education.isEmpty()
+            val activeExperience = resume.experience.filter { it.isActive }
+            val activeProjects = resume.projects.filter { it.isActive }
+            val activeEducation = resume.education.filter { it.isActive }
+            val activeCertifications = resume.certifications.filter { it.isActive }
+
+            val isEmpty = activeExperience.isEmpty() && activeProjects.isEmpty() && activeEducation.isEmpty()
 
             if (isEmpty) {
                 Box(
@@ -139,13 +144,13 @@ fun SharedAtsResumePreview(
             }
 
             // Experience
-            if (resume.experience.isNotEmpty()) {
+            if (activeExperience.isNotEmpty()) {
                 Text(
                     text = "PROFESSIONAL EXPERIENCE",
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                     color = Color.Black,
                 )
-                for (rawExp in resume.experience) {
+                for (rawExp in activeExperience) {
                     val exp = TailoredResume.sanitizeExperience(rawExp)
                     val dateLoc = buildString {
                         if (!exp.startDate.isNullOrBlank()) append(exp.startDate)
@@ -189,13 +194,13 @@ fun SharedAtsResumePreview(
             }
 
             // Projects
-            if (resume.projects.isNotEmpty()) {
+            if (activeProjects.isNotEmpty()) {
                 Text(
                     text = "TECHNICAL PROJECTS",
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                     color = Color.Black,
                 )
-                for (proj in resume.projects) {
+                for (proj in activeProjects) {
                     val pHeader = if (!proj.role.isNullOrBlank()) "${proj.name}  |  ${proj.role}" else proj.name
                     Text(
                         text = pHeader,
@@ -223,13 +228,13 @@ fun SharedAtsResumePreview(
             }
 
             // Education
-            if (resume.education.isNotEmpty()) {
+            if (activeEducation.isNotEmpty()) {
                 Text(
                     text = "EDUCATION",
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                     color = Color.Black,
                 )
-                for (edu in resume.education) {
+                for (edu in activeEducation) {
                     val eduLine = buildString {
                         append("• ${edu.school}")
                         if (edu.degree.isNotBlank()) append("  |  ${edu.degree}")
@@ -246,13 +251,13 @@ fun SharedAtsResumePreview(
             }
 
             // Certifications
-            if (resume.certifications.isNotEmpty()) {
+            if (activeCertifications.isNotEmpty()) {
                 Text(
                     text = "CERTIFICATIONS",
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                     color = Color.Black,
                 )
-                for (cert in resume.certifications) {
+                for (cert in activeCertifications) {
                     val certLine = buildString {
                         append("• ${cert.name}")
                         if (!cert.issuer.isNullOrBlank()) append("  |  ${cert.issuer}")

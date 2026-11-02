@@ -63,14 +63,15 @@ data class TailoredResume(
         fun empty(): TailoredResume = TailoredResume(isTailored = false)
 
         fun fromBaseResume(base: BaseResume, reason: String? = null): TailoredResume {
+            val activeBase = base.activeOnly()
             return TailoredResume(
-                contact = base.contact,
-                summary = base.summary ?: "",
-                skills = base.skills,
-                experience = base.experience.map { sanitizeExperience(it) },
-                projects = base.projects,
-                education = base.education,
-                certifications = base.certifications,
+                contact = activeBase.contact,
+                summary = activeBase.summary ?: "",
+                skills = activeBase.skills,
+                experience = activeBase.experience.filter { it.isActive }.map { sanitizeExperience(it) },
+                projects = activeBase.projects.filter { it.isActive },
+                education = activeBase.education.filter { it.isActive },
+                certifications = activeBase.certifications.filter { it.isActive },
                 isTailored = false,
                 fallbackReason = reason,
             )

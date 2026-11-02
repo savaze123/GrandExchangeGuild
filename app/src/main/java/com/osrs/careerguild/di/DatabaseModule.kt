@@ -59,7 +59,7 @@ object DatabaseModule {
             "career_guild.db",
         )
             .openHelperFactory(factory)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
     }
 
@@ -100,6 +100,22 @@ object DatabaseModule {
                     readme_excerpt TEXT,
                     etag TEXT,
                     cached_at INTEGER NOT NULL
+                )
+            """.trimIndent())
+        }
+    }
+
+    val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("""
+                CREATE TABLE IF NOT EXISTS courier_accounts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    company_name TEXT NOT NULL,
+                    job_title TEXT NOT NULL,
+                    portal_url TEXT NOT NULL,
+                    email_used TEXT NOT NULL,
+                    password_encrypted TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
                 )
             """.trimIndent())
         }

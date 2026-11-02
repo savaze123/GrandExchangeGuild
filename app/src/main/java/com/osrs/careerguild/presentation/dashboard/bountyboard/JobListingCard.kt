@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.osrs.careerguild.domain.model.JobListing
+import com.osrs.careerguild.presentation.dashboard.courierguild.CourierAutoApplyDispatcher
 
 /**
  * OSRS-styled Quest Scroll card representing a single scored [JobListing].
@@ -73,6 +74,9 @@ fun JobListingCard(
 ) {
     val tierColor = scoreTierColor(job.score)
     var isTerminalOpen by remember { mutableStateOf(false) }
+    val isLinkedInExcluded = remember(job.source, job.applyUrl, job.atsUrl) {
+        CourierAutoApplyDispatcher.isExcludedFromAutoApply(job)
+    }
 
     Card(
         modifier = modifier
@@ -141,6 +145,20 @@ fun JobListingCard(
                         color = Color(0xFF81C784),
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                     )
+                }
+                if (isLinkedInExcluded) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFF3E2723),
+                        border = BorderStroke(0.8.dp, Color(0xFFFFB74D)),
+                    ) {
+                        Text(
+                            text = "🛡 Manual Apply Only",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                            color = Color(0xFFFFB74D),
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                        )
+                    }
                 }
             }
 
@@ -356,25 +374,47 @@ fun JobListingCard(
                         )
                     }
 
-                    // Queue Auto-Apply (Secondary Dispatch Action: Courier Guild — Distinct Cyber-Teal / Emerald Hierarchy)
-                    androidx.compose.material3.OutlinedButton(
-                        onClick = { onQueueAutoApply(job) },
-                        shape   = RoundedCornerShape(6.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 5.dp),
-                        border  = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)),
-                        colors  = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                            containerColor = Color(0xFF0A2E38),
-                            contentColor   = Color(0xFF00E5FF),
-                        ),
-                    ) {
-                        Text(
-                            text  = "⚡ Auto-Apply",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                letterSpacing = 0.2.sp,
+                    // Queue Auto-Apply (Secondary Dispatch Action: Courier Guild — or Manual Apply Only for LinkedIn)
+                    if (isLinkedInExcluded) {
+                        androidx.compose.material3.OutlinedButton(
+                            onClick = { onOpenAts(job.applyUrl.ifBlank { job.atsUrl }) },
+                            shape   = RoundedCornerShape(6.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+                            border  = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0xFFFFB74D)),
+                            colors  = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                containerColor = Color(0xFF2E1E16),
+                                contentColor   = Color(0xFFFFB74D),
                             ),
-                            color = Color(0xFF00E5FF),
-                        )
+                        ) {
+                            Text(
+                                text  = "🌐 Manual Apply Only",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 0.2.sp,
+                                ),
+                                color = Color(0xFFFFB74D),
+                            )
+                        }
+                    } else {
+                        androidx.compose.material3.OutlinedButton(
+                            onClick = { onQueueAutoApply(job) },
+                            shape   = RoundedCornerShape(6.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+                            border  = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)),
+                            colors  = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                containerColor = Color(0xFF0A2E38),
+                                contentColor   = Color(0xFF00E5FF),
+                            ),
+                        ) {
+                            Text(
+                                text  = "⚡ Auto-Apply",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 0.2.sp,
+                                ),
+                                color = Color(0xFF00E5FF),
+                            )
+                        }
                     }
                 }
 

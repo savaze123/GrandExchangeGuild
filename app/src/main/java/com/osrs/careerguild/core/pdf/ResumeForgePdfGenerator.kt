@@ -97,7 +97,12 @@ object ResumeForgePdfGenerator {
         targetCompany: String,
         userProfile: UserProfile,
     ): FitState {
-        var currentResume = initial
+        var currentResume = initial.copy(
+            experience = initial.experience.filter { it.isActive },
+            projects = initial.projects.filter { it.isActive },
+            education = initial.education.filter { it.isActive },
+            certifications = initial.certifications.filter { it.isActive },
+        )
         var currentFontSize = 9.5f
 
         while (currentFontSize >= 9.0f) {
