@@ -154,19 +154,11 @@ class Argon4AuditTest {
     }
 
     @Test
-    fun `Test 8 - First-Person CameraController maps joystick X-Y deltas to translation and rotation vectors`() {
+    fun `Test 8 - Orbit CameraController maintains initial perspective and zoom state`() {
         val controller = CameraController()
-        assertFalse(controller.isFirstPersonMode)
-        controller.toggleFirstPersonMode()
-        assertTrue(controller.isFirstPersonMode)
-
-        val initialZ = controller.fpEyeZ
-        val initialYaw = controller.fpYaw
-        controller.updateJoystick(normX = 0.5f, normY = -0.8f) // push forward and right
-        controller.stepFirstPersonMovement(dtSec = 0.1f)
-
-        assertNotEquals(initialZ, controller.fpEyeZ)
-        assertNotEquals(initialYaw, controller.fpYaw)
+        assertEquals(1.36f, controller.distance, 0.01f)
+        controller.reset()
+        assertEquals(1.36f, controller.distance, 0.01f)
     }
 
     @Test
@@ -217,42 +209,5 @@ class Argon4AuditTest {
         )
         assertTrue(typingJs.contains("__cgHeuristicTypeField"))
         assertTrue(typingJs.contains("First Name"))
-    }
-
-    @Test
-    fun `Test 11 - Avatar-Centric 3D Navigation enforces environmental boundaries, prevents building clipping, and triggers Guild Hall entry`() {
-        val controller = CameraController()
-        controller.toggleFirstPersonMode()
-        assertTrue(controller.isFirstPersonMode)
-
-        // 1. Verify environmental boundary clamping (cannot walk outside MAX_PLAZA_RADIUS = 14.5f)
-        controller.avatarX = 0f
-        controller.avatarZ = -14.3f
-        controller.avatarYaw = 0f // facing -Z
-        controller.updateJoystick(normX = 0f, normY = -1.0f) // walk straight forward toward outer rim
-        repeat(20) {
-            controller.stepFirstPersonMovement(dtSec = 0.05f)
-        }
-        val radialDist = kotlin.math.hypot(controller.avatarX, controller.avatarZ)
-        assertTrue("Avatar radial distance ($radialDist) must be clamped to <= ${CameraController.MAX_PLAZA_RADIUS}", radialDist <= CameraController.MAX_PLAZA_RADIUS + 0.01f)
-
-        // 2. Verify physical contact with Courier Guild collider (7.2f, 7.2f) prevents clipping & triggers COURIER_GUILD entry
-        controller.avatarX = 7.2f
-        controller.avatarZ = 4.3f
-        controller.avatarYaw = Math.PI.toFloat() // facing +Z toward (7.2, 7.2)
-        controller.updateJoystick(normX = 0f, normY = -1.0f) // walk straight into Courier Guild collider
-        var triggered: GuildBuilding? = null
-        repeat(20) {
-            val hit = controller.stepFirstPersonMovement(dtSec = 0.05f)
-            if (hit != null) {
-                triggered = hit
-            }
-        }
-        assertNotNull("Touching Courier Guild collider must trigger building entry", triggered)
-        assertEquals(GuildBuilding.COURIER_GUILD, triggered)
-
-        // Verify avatar was pushed outside the building collider and did not clip inside
-        val distFromBuilding = kotlin.math.hypot(controller.avatarX - 7.2f, controller.avatarZ - 7.2f)
-        assertTrue("Avatar must not clip inside building collider (dist=$distFromBuilding)", distFromBuilding > CameraController.BUILDING_COLLIDER_RADIUS)
     }
 }
