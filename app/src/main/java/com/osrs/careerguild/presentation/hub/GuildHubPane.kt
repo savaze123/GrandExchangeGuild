@@ -134,19 +134,52 @@ data class FloatingCharacterDialogue(
 
 /**
  * Interactive Camera Controller managing 360° orbit yaw, elevation perspective pitch,
- * dynamic zoom distance, and toggleable First-Person Citadel Navigation (Section 4).
+ * dynamic zoom distance, and Avatar-Centric 3D Citadel Navigation (Section 3).
  */
 class CameraController(
     initialYaw: Float = (Math.PI * 0.25).toFloat(),
     initialPitch: Float = Math.toRadians(37.0).toFloat(),
     initialDistance: Float = 1.36f,
 ) {
+    companion object {
+        const val MAX_PLAZA_RADIUS = 14.5f
+        const val BUILDING_COLLIDER_RADIUS = 2.65f
+        const val TEMPLE_SPIRE_Z = -11.5f
+        const val TEMPLE_SPIRE_RADIUS = 2.6f
+
+        val BUILDING_COLLIDERS: List<Triple<GuildBuilding, Float, Float>> = listOf(
+            Triple(GuildBuilding.BOUNTY_BOARD,  -7.2f, -7.2f), // NW
+            Triple(GuildBuilding.SCRIBE_TOWER,   7.2f, -7.2f), // NE
+            Triple(GuildBuilding.SKILL_ALTAR,   -7.2f,  7.2f), // SW
+            Triple(GuildBuilding.COURIER_GUILD,  7.2f,  7.2f), // SE
+        )
+    }
+
     var yaw by mutableFloatStateOf(initialYaw)
     var pitch by mutableFloatStateOf(initialPitch)
     var distance by mutableFloatStateOf(initialDistance)
 
-    // Section 4: First-Person Camera Mode state & Virtual Analog Joystick vectors
+    // Section 3: Avatar-Centric 3D Navigation state & Virtual Analog Joystick vectors
     var isFirstPersonMode by mutableStateOf(false)
+
+    // Physical Avatar coordinates in Popo's Lookout model space
+    var avatarX by mutableFloatStateOf(0.0f)
+    var avatarY by mutableFloatStateOf(0.55f)
+    var avatarZ by mutableFloatStateOf(2.5f)
+    var avatarYaw by mutableFloatStateOf(0.0f)
+    var isAvatarWalking by mutableStateOf(false)
+    var lastCollidedBuilding by mutableStateOf<GuildBuilding?>(null)
+    var lastBuildingTriggerTimeMs: Long = 0L
+
+    // Smooth third-person chase camera tracking behind the physical avatar in model space
+    var camModelX by mutableFloatStateOf(0.0f)
+    var camModelY by mutableFloatStateOf(2.85f)
+    var camModelZ by mutableFloatStateOf(6.7f)
+    var targetModelX by mutableFloatStateOf(0.0f)
+    var targetModelY by mutableFloatStateOf(1.45f)
+    var targetModelZ by mutableFloatStateOf(-1.3f)
+
+    // Synchronized normalized eye coordinates for telemetry / backward compatibility
     var fpEyeX by mutableFloatStateOf(0.0f)
     var fpEyeY by mutableFloatStateOf(0.09f)
     var fpEyeZ by mutableFloatStateOf(0.28f)
@@ -162,14 +195,32 @@ class CameraController(
     fun toggleFirstPersonMode() {
         isFirstPersonMode = !isFirstPersonMode
         if (isFirstPersonMode) {
-            fpEyeX = 0.0f
-            fpEyeY = 0.09f
-            fpEyeZ = 0.28f
-            fpYaw = 0.0f
-            fpPitch = 0.04f
+            resetAvatarToSpawn()
         }
         joystickDeltaX = 0f
         joystickDeltaY = 0f
+        isAvatarWalking = false
+    }
+
+    fun resetAvatarToSpawn() {
+        avatarX = 0.0f
+        avatarY = 0.55f
+        avatarZ = 2.5f
+        avatarYaw = 0.0f
+        fpPitch = 0.04f
+        camModelX = 0.0f
+        camModelY = 2.85f
+        camModelZ = 6.7f
+        targetModelX = 0.0f
+        targetModelY = 1.45f
+        targetModelZ = -1.3f
+        syncNormalizedEyeState()
+    }
+
+    private fun syncNormalizedEyeState() {
+        fpYaw = avatarYaw
+        fpEyeX = (avatarX * 0.05f).coerceIn(-0.75f, 0.75f)
+        fpEyeZ = (avatarZ * 0.05f).coerceIn(-0.75f, 0.75f)
     }
 
     fun updateJoystick(normX: Float, normY: Float) {
@@ -178,37 +229,127 @@ class CameraController(
     }
 
     fun rotateFirstPersonLook(deltaYawRad: Float, deltaPitchRad: Float) {
-        fpYaw += deltaYawRad
-        fpPitch = (fpPitch + deltaPitchRad).coerceIn(-0.65f, 0.75f)
+        avatarYaw += deltaYawRad
+        fpYaw = avatarYaw
+        fpPitch = (fpPitch + deltaPitchRad).coerceIn(-0.45f, 0.55f)
     }
 
     /**
-     * Maps the virtual analog joystick's X/Y delta to the 3D camera's translation
-     * (forward/backward + strafe) and yaw rotation vectors on each 120Hz frame.
+     * Tuned non-linear response curve with deadzone so small thumb movements produce
+     * smooth, classic RPG avatar control instead of erratic jerks.
      */
-    fun stepFirstPersonMovement(dtSec: Float = 1f / 120f) {
-        if (!isFirstPersonMode) return
-        val jx = joystickDeltaX
-        val jy = joystickDeltaY
-        if (kotlin.math.abs(jx) < 0.01f && kotlin.math.abs(jy) < 0.01f) return
+    private fun applyTunedJoystickCurve(raw: Float, deadzone: Float = 0.07f): Float {
+        val absVal = kotlin.math.abs(raw)
+        if (absVal <= deadzone) return 0f
+        val remapped = ((absVal - deadzone) / (1f - deadzone)).coerceIn(0f, 1f)
+        // Softened blend (60% linear + 40% quadratic) for smooth low-end control
+        val curved = remapped * (0.60f + 0.40f * remapped)
+        return if (raw >= 0f) curved else -curved
+    }
 
-        val moveSpeed = 0.28f
-        val turnSpeed = 1.45f
+    /**
+     * Advances the physical avatar on Popo's Lookout according to the tuned virtual joystick
+     * vector, enforces environmental & building collision boundaries, smoothly lerps the
+     * chase camera behind the avatar, and returns a [GuildBuilding] when the avatar physically
+     * contacts a Guild Hall collider.
+     */
+    fun stepFirstPersonMovement(dtSec: Float = 1f / 120f): GuildBuilding? {
+        if (!isFirstPersonMode) return null
 
-        // Map X delta to camera yaw rotation + subtle strafe
-        fpYaw -= jx * turnSpeed * dtSec
+        val effectiveJx = applyTunedJoystickCurve(joystickDeltaX)
+        val effectiveJy = applyTunedJoystickCurve(joystickDeltaY)
+        val hasInput = kotlin.math.abs(effectiveJx) > 0.001f || kotlin.math.abs(effectiveJy) > 0.001f
+        isAvatarWalking = hasInput
 
-        val forwardX = -sin(fpYaw)
-        val forwardZ = -cos(fpYaw)
-        val rightX = cos(fpYaw)
-        val rightZ = -sin(fpYaw)
+        var triggeredBuilding: GuildBuilding? = null
 
-        // Map Y delta (up is negative screen Y -> forward movement) and X delta to translation
-        val forwardStep = (-jy) * moveSpeed * dtSec
-        val strafeStep = jx * (moveSpeed * 0.35f) * dtSec
+        if (hasInput) {
+            // Reduced vector mapping sensitivity for smooth, classic game avatar control
+            val moveSpeed = 4.2f // model units / sec on Popo's Lookout deck
+            val turnSpeed = 1.20f // rad / sec smooth turning
 
-        fpEyeX = (fpEyeX + forwardX * forwardStep + rightX * strafeStep).coerceIn(-0.42f, 0.42f)
-        fpEyeZ = (fpEyeZ + forwardZ * forwardStep + rightZ * strafeStep).coerceIn(-0.42f, 0.42f)
+            // Turn avatar smoothly with horizontal joystick axis
+            avatarYaw -= effectiveJx * turnSpeed * dtSec
+
+            val forwardX = -sin(avatarYaw)
+            val forwardZ = -cos(avatarYaw)
+            val rightX = cos(avatarYaw)
+            val rightZ = -sin(avatarYaw)
+
+            // Forward/backward stride + subtle strafe
+            val forwardStep = (-effectiveJy) * moveSpeed * dtSec
+            val strafeStep = effectiveJx * (moveSpeed * 0.22f) * dtSec
+
+            var nextX = avatarX + forwardX * forwardStep + rightX * strafeStep
+            var nextZ = avatarZ + forwardZ * forwardStep + rightZ * strafeStep
+
+            // 1. Environmental Boundary Collision: Circular Lookout Plaza rim
+            val radialDist = kotlin.math.hypot(nextX, nextZ)
+            if (radialDist > MAX_PLAZA_RADIUS && radialDist > 0.0001f) {
+                nextX = (nextX / radialDist) * MAX_PLAZA_RADIUS
+                nextZ = (nextZ / radialDist) * MAX_PLAZA_RADIUS
+            }
+
+            // 2. Environmental Obstacle Collision: Central Lookout Temple / Spire (0, -11.5)
+            val spireDx = nextX - 0.0f
+            val spireDz = nextZ - TEMPLE_SPIRE_Z
+            val spireDist = kotlin.math.hypot(spireDx, spireDz)
+            if (spireDist < TEMPLE_SPIRE_RADIUS) {
+                val safeLen = spireDist.coerceAtLeast(0.001f)
+                nextX = 0.0f + (spireDx / safeLen) * (TEMPLE_SPIRE_RADIUS + 0.08f)
+                nextZ = TEMPLE_SPIRE_Z + (spireDz / safeLen) * (TEMPLE_SPIRE_RADIUS + 0.08f)
+            }
+
+            // 3. Guild Building Colliders: Prevent clipping & trigger immediate Guild Hall entry
+            for ((building, bx, bz) in BUILDING_COLLIDERS) {
+                val dx = nextX - bx
+                val dz = nextZ - bz
+                val dist = kotlin.math.hypot(dx, dz)
+                if (dist <= BUILDING_COLLIDER_RADIUS) {
+                    val safeLen = dist.coerceAtLeast(0.001f)
+                    // Push avatar radially outside the building collider so it cannot walk through
+                    val pushOutRadius = BUILDING_COLLIDER_RADIUS + 0.22f
+                    nextX = bx + (dx / safeLen) * pushOutRadius
+                    nextZ = bz + (dz / safeLen) * pushOutRadius
+                    triggeredBuilding = building
+                    lastCollidedBuilding = building
+                    break
+                }
+            }
+
+            avatarX = nextX
+            avatarZ = nextZ
+            syncNormalizedEyeState()
+        }
+
+        // 4. Smoothly track the third-person chase camera behind the physical avatar
+        val forwardX = -sin(avatarYaw)
+        val forwardZ = -cos(avatarYaw)
+        val desiredCamX = avatarX - forwardX * 4.2f
+        val desiredCamY = avatarY + 2.30f
+        val desiredCamZ = avatarZ - forwardZ * 4.2f
+
+        val desiredTargetX = avatarX + forwardX * 3.8f
+        val desiredTargetY = avatarY + 0.90f + fpPitch * 2.4f
+        val desiredTargetZ = avatarZ + forwardZ * 3.8f
+
+        val camLerp = (dtSec * 10.5f).coerceIn(0.05f, 0.35f)
+        camModelX += (desiredCamX - camModelX) * camLerp
+        camModelY += (desiredCamY - camModelY) * camLerp
+        camModelZ += (desiredCamZ - camModelZ) * camLerp
+
+        targetModelX += (desiredTargetX - targetModelX) * camLerp
+        targetModelY += (desiredTargetY - targetModelY) * camLerp
+        targetModelZ += (desiredTargetZ - targetModelZ) * camLerp
+
+        if (triggeredBuilding != null) {
+            // Release joystick on Guild Hall entry so avatar stays outside door upon return
+            joystickDeltaX = 0f
+            joystickDeltaY = 0f
+            isAvatarWalking = false
+        }
+
+        return triggeredBuilding
     }
 
     /**
@@ -239,13 +380,10 @@ class CameraController(
 
     fun reset() {
         isFirstPersonMode = false
-        fpEyeX = 0.0f
-        fpEyeY = 0.09f
-        fpEyeZ = 0.28f
-        fpYaw = 0.0f
-        fpPitch = 0.04f
+        resetAvatarToSpawn()
         joystickDeltaX = 0f
         joystickDeltaY = 0f
+        isAvatarWalking = false
         manipulator?.homeBookmark?.let {
             manipulator?.jumpToBookmark(it)
         }
@@ -272,6 +410,7 @@ fun GuildHubPane(
     var showSettingsModal by remember { mutableStateOf(false) }
     var billboardPositions by remember { mutableStateOf<Map<GuildBuilding, Pair<Float, Float>>>(emptyMap()) }
     var nimbusPosition by remember { mutableStateOf<Pair<Float, Float>?>(null) }
+    var avatarScreenPosition by remember { mutableStateOf<Pair<Float, Float>?>(null) }
     var characterDialogues by remember { mutableStateOf<List<FloatingCharacterDialogue>>(emptyList()) }
 
     Box(
@@ -286,9 +425,19 @@ fun GuildHubPane(
             onNimbusTapped = { showSettingsModal = true },
             onUpdateBuildingBillboards = { billboardPositions = it },
             onUpdateNimbusBillboard = { nimbusPosition = it },
+            onUpdateAvatarScreenPosition = { avatarScreenPosition = it },
             onUpdateCharacterDialogues = { characterDialogues = it },
             modifier = Modifier.fillMaxSize(),
         )
+
+        // 1b. Physical 3D-Projected Avatar on Popo's Lookout (Visible in Avatar Navigation Mode)
+        if (cameraController.isFirstPersonMode) {
+            AvatarCharacterOverlay(
+                cameraController = cameraController,
+                avatarScreenPosition = avatarScreenPosition,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
 
         // 2. 2D Floating In-World Billboards (Always facing camera, crisp OSRS labels above 3D buildings)
         FloatingBuildingBillboards(
@@ -325,7 +474,7 @@ fun GuildHubPane(
                 .padding(end = 16.dp, bottom = 80.dp),
         )
 
-        // 4b. Section 4: Virtual Analog Joystick for 3D Citadel First-Person Navigation (Bottom-Left)
+        // 4b. Section 3: Virtual Analog Joystick for Avatar-Centric 3D Citadel Navigation (Bottom-Left)
         if (cameraController.isFirstPersonMode) {
             FirstPersonVirtualJoystick(
                 cameraController = cameraController,
@@ -566,7 +715,7 @@ private fun CameraControlsToolbar(
                 contentDescription = "Cycle Perspective",
                 onClick = { cameraController.cyclePerspective() },
             )
-            // Section 4: Toggleable First-Person Citadel Navigation Mode
+            // Section 3: Toggleable Avatar-Centric 3D Citadel Navigation Mode
             Surface(
                 shape = RoundedCornerShape(10.dp),
                 color = if (cameraController.isFirstPersonMode) Color(0xFF0A2E38) else OsrsStone,
@@ -578,13 +727,8 @@ private fun CameraControlsToolbar(
                     .size(46.dp)
                     .clickable {
                         cameraController.toggleFirstPersonMode()
-                        val manip = cameraController.manipulator
-                        val w = cameraController.viewportWidth.coerceAtLeast(100)
-                        val h = cameraController.viewportHeight.coerceAtLeast(100)
-                        if (cameraController.isFirstPersonMode) {
-                            // Bring camera down to eye-level on the Lookout plaza
-                            manip?.scroll(w / 2, h / 2, -160.0f)
-                        } else {
+                        if (!cameraController.isFirstPersonMode) {
+                            val manip = cameraController.manipulator
                             manip?.homeBookmark?.let { manip.jumpToBookmark(it) }
                         }
                     },
@@ -611,15 +755,104 @@ private fun CameraControlsToolbar(
 }
 
 /**
- * Section 4: Virtual Analog Joystick composable using `pointerInput` (`detectDragGestures`).
- * Maps the joystick's X/Y delta to the 3D camera's translation and rotation vectors in First-Person Mode.
+ * Physical 3D-projected Avatar character overlay rendered on Popo's Lookout deck
+ * when Avatar-Centric 3D Navigation Mode is active.
+ */
+@Composable
+private fun AvatarCharacterOverlay(
+    cameraController: CameraController,
+    avatarScreenPosition: Pair<Float, Float>?,
+    modifier: Modifier = Modifier,
+) {
+    val pos = avatarScreenPosition ?: return
+    val (screenX, screenY) = pos
+
+    // Calculate nearest Guild Hall distance in model units for proximity HUD feedback
+    var nearestBuilding: GuildBuilding? = null
+    var nearestDist = Float.MAX_VALUE
+    for ((building, bx, bz) in CameraController.BUILDING_COLLIDERS) {
+        val d = kotlin.math.hypot(cameraController.avatarX - bx, cameraController.avatarZ - bz)
+        if (d < nearestDist) {
+            nearestDist = d
+            nearestBuilding = building
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints)
+                layout(placeable.width, placeable.height) {
+                    val posX = (screenX - placeable.width / 2f).roundToInt()
+                        .coerceIn(16, (constraints.maxWidth - placeable.width - 16).coerceAtLeast(16))
+                    val posY = (screenY - placeable.height * 0.72f).roundToInt()
+                        .coerceIn(120, (constraints.maxHeight - placeable.height - 90).coerceAtLeast(120))
+                    placeable.place(posX, posY)
+                }
+            },
+        ) {
+            // Overhead RPG Adventurer nameplate & collider proximity indicator
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = OsrsDarkStone.copy(alpha = 0.92f),
+                border = BorderStroke(1.2.dp, if (nearestDist < 4.5f) OsrsGold else OsrsCyan),
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = if (cameraController.isAvatarWalking) "🏃 Guild Adventurer" else "🧍 Guild Adventurer",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                        ),
+                        color = OsrsGold,
+                    )
+                    if (nearestBuilding != null && nearestDist < 5.2f) {
+                        Text(
+                            text = "Touch ${nearestBuilding.displayName} to Enter (${String.format("%.1f", (nearestDist - CameraController.BUILDING_COLLIDER_RADIUS).coerceAtLeast(0f))}m)",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp),
+                            color = OsrsCyan,
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(3.dp))
+
+            // Physical Avatar Token with Golden Aura & Ground Collider Ring
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(Color(0xFF0A2E38).copy(alpha = 0.86f), CircleShape)
+                    .border(
+                        width = 2.dp,
+                        color = if (cameraController.isAvatarWalking) OsrsGold else OsrsCyan,
+                        shape = CircleShape,
+                    ),
+            ) {
+                Text(
+                    text = "⚔️",
+                    fontSize = 20.sp,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Section 3: Virtual Analog Joystick composable using `pointerInput` (`detectDragGestures`).
+ * Controls the physical avatar on Popo's Lookout with tuned sensitivity and smooth return-to-center.
  */
 @Composable
 private fun FirstPersonVirtualJoystick(
     cameraController: CameraController,
     modifier: Modifier = Modifier,
 ) {
-    val maxRadiusPx = 95f
+    val maxRadiusPx = 115f
     var knobOffset by remember { mutableStateOf(Offset.Zero) }
 
     Column(
@@ -633,7 +866,7 @@ private fun FirstPersonVirtualJoystick(
             border = BorderStroke(1.dp, OsrsCyan),
         ) {
             Text(
-                text = "🕹️ 1ST-PERSON NAV",
+                text = "🕹️ AVATAR NAV · WALK TO ENTER HALL",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
                 color = OsrsCyan,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
@@ -643,8 +876,8 @@ private fun FirstPersonVirtualJoystick(
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(112.dp)
-                .background(OsrsDarkStone.copy(alpha = 0.82f), CircleShape)
+                .size(116.dp)
+                .background(OsrsDarkStone.copy(alpha = 0.84f), CircleShape)
                 .border(2.dp, OsrsGold.copy(alpha = 0.85f), CircleShape)
                 .pointerInput(Unit) {
                     detectDragGestures(
@@ -659,7 +892,8 @@ private fun FirstPersonVirtualJoystick(
                         },
                         onDrag = { change, dragAmount ->
                             change.consume()
-                            val raw = knobOffset + dragAmount
+                            // Reduced sensitivity (0.72x drag gain) for smooth, classic game control
+                            val raw = knobOffset + (dragAmount * 0.72f)
                             val dist = kotlin.math.hypot(raw.x, raw.y)
                             val clamped = if (dist > maxRadiusPx && dist > 0f) {
                                 Offset(raw.x / dist * maxRadiusPx, raw.y / dist * maxRadiusPx)
@@ -844,6 +1078,7 @@ private fun FilamentLivingTown(
     onNimbusTapped: () -> Unit,
     onUpdateBuildingBillboards: (Map<GuildBuilding, Pair<Float, Float>>) -> Unit,
     onUpdateNimbusBillboard: (Pair<Float, Float>?) -> Unit = {},
+    onUpdateAvatarScreenPosition: (Pair<Float, Float>?) -> Unit = {},
     onUpdateCharacterDialogues: (List<FloatingCharacterDialogue>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -862,12 +1097,15 @@ private fun FilamentLivingTown(
                     .build(Manipulator.Mode.ORBIT)
 
                 cameraController.manipulator = manipulator
+                val filamentGestureDetector = com.google.android.filament.utils.GestureDetector(this, manipulator)
 
+                // Pass manipulator = null so ModelViewer.render() does not overwrite camera.lookAt()
+                // when Avatar-Centric 3D Navigation Mode is active
                 val viewer = ModelViewer(
                     surfaceView = this,
                     engine = engine,
                     uiHelper = uiHelper,
-                    manipulator = manipulator,
+                    manipulator = null,
                 )
                 tag = viewer
 
@@ -1012,6 +1250,8 @@ private fun FilamentLivingTown(
 
                 var downX = 0f
                 var downY = 0f
+                var prevTouchX = 0f
+                var prevTouchY = 0f
                 var isTapCandidate = false
 
                 setOnTouchListener { _, event ->
@@ -1023,12 +1263,25 @@ private fun FilamentLivingTown(
                         MotionEvent.ACTION_DOWN -> {
                             downX = event.x
                             downY = event.y
+                            prevTouchX = event.x
+                            prevTouchY = event.y
                             isTapCandidate = true
                         }
                         MotionEvent.ACTION_MOVE -> {
                             val dist = kotlin.math.hypot(event.x - downX, event.y - downY)
                             if (dist > 25f) {
                                 isTapCandidate = false
+                            }
+                            if (cameraController.isFirstPersonMode) {
+                                val dx = event.x - prevTouchX
+                                val dy = event.y - prevTouchY
+                                prevTouchX = event.x
+                                prevTouchY = event.y
+                                // Smooth touch-look around the avatar
+                                cameraController.rotateFirstPersonLook(
+                                    deltaYawRad = -dx * 0.0032f,
+                                    deltaPitchRad = -dy * 0.0022f,
+                                )
                             }
                         }
                         MotionEvent.ACTION_UP -> {
@@ -1041,14 +1294,17 @@ private fun FilamentLivingTown(
                         }
                     }
 
-                    // Forward drag-to-rotate and pinch-to-zoom to ModelViewer's native manipulator
-                    viewer.onTouchEvent(event)
+                    // In Orbit Mode, forward drag-to-rotate and pinch-to-zoom to Filament's orbit manipulator
+                    if (!cameraController.isFirstPersonMode) {
+                        filamentGestureDetector.onTouchEvent(event)
+                    }
                     true
                 }
 
                 // Billboard and dialogue position caches and cached Filament entity transform instances
                 var lastBillboardMap = emptyMap<GuildBuilding, Pair<Float, Float>>()
                 var lastNimbusScreenPt: Pair<Float, Float>? = null
+                var lastAvatarScreenPt: Pair<Float, Float>? = null
                 var lastDialogues = emptyList<FloatingCharacterDialogue>()
                 var entitiesInitialized = false
                 var nimbusInst = 0
@@ -1078,50 +1334,95 @@ private fun FilamentLivingTown(
                             val w = width.toFloat()
                             val h = height.toFloat()
 
-                            // Section 4: Apply First-Person Virtual Analog Joystick X/Y delta to 3D camera translation & rotation
-                            if (cameraController.isFirstPersonMode && w > 0f && h > 0f) {
-                                cameraController.stepFirstPersonMovement(1f / 120f)
-                                val jx = cameraController.joystickDeltaX
-                                val jy = cameraController.joystickDeltaY
-                                val cx = (w * 0.5f).toInt()
-                                val cy = (h * 0.5f).toInt()
-                                if (kotlin.math.abs(jy) > 0.02f) {
-                                    // Forward/backward translation along look vector
-                                    manipulator.scroll(cx, cy, jy * 9.5f)
-                                }
-                                if (kotlin.math.abs(jx) > 0.02f) {
-                                    // Horizontal rotation & strafe vector
-                                    manipulator.grabBegin(cx, cy, false)
-                                    manipulator.grabUpdate(cx - (jx * 14f).toInt(), cy)
-                                    manipulator.grabEnd()
-                                }
+                            // Obtain asset root transform first so we can transform model-space avatar & camera coordinates
+                            val rootEntity = viewer.asset?.root ?: 0
+                            val rootInst = if (rootEntity != 0) tm.getInstance(rootEntity) else 0
+                            if (rootInst != 0) {
+                                tm.getTransform(rootInst, rootTransform)
+                            } else {
+                                for (i in 0..15) rootTransform[i] = if (i % 5 == 0) 1.0f else 0.0f
                             }
 
-                            // Read live camera state from manipulator
-                            try {
-                                manipulator.getLookAt(eyePosBuf, targetBuf, upwardBuf)
-                                val dx = eyePosBuf[0] - targetBuf[0]
-                                val dy = eyePosBuf[1] - targetBuf[1]
-                                val dz = eyePosBuf[2] - targetBuf[2]
-                                val dist = sqrt(dx * dx + dy * dy + dz * dz).toFloat()
-                                val pitch = asin((dy / dist).coerceIn(-1.0, 1.0)).toFloat()
-                                val yaw = atan2(dx, dz).toFloat()
-                                cameraController.distance = dist
-                                cameraController.pitch = pitch
-                                cameraController.yaw = yaw
-                            } catch (_: Throwable) {}
+                            // Section 3: Avatar-Centric 3D Navigation Mode vs. Orbit Camera Mode
+                            if (cameraController.isFirstPersonMode && w > 0f && h > 0f) {
+                                val triggeredBuilding = cameraController.stepFirstPersonMovement(1f / 120f)
+
+                                // Transform model-space chase camera & look-at target into Filament world space via rootTransform
+                                val cx = cameraController.camModelX
+                                val cy = cameraController.camModelY
+                                val cz = cameraController.camModelZ
+                                val worldEyeX = (rootTransform[0] * cx + rootTransform[4] * cy + rootTransform[8] * cz + rootTransform[12]).toDouble()
+                                val worldEyeY = (rootTransform[1] * cx + rootTransform[5] * cy + rootTransform[9] * cz + rootTransform[13]).toDouble()
+                                val worldEyeZ = (rootTransform[2] * cx + rootTransform[6] * cy + rootTransform[10] * cz + rootTransform[14]).toDouble()
+
+                                val tx = cameraController.targetModelX
+                                val ty = cameraController.targetModelY
+                                val tz = cameraController.targetModelZ
+                                val worldTargetX = (rootTransform[0] * tx + rootTransform[4] * ty + rootTransform[8] * tz + rootTransform[12]).toDouble()
+                                val worldTargetY = (rootTransform[1] * tx + rootTransform[5] * ty + rootTransform[9] * tz + rootTransform[13]).toDouble()
+                                val worldTargetZ = (rootTransform[2] * tx + rootTransform[6] * ty + rootTransform[10] * tz + rootTransform[14]).toDouble()
+
+                                try {
+                                    viewer.camera.lookAt(
+                                        worldEyeX, worldEyeY, worldEyeZ,
+                                        worldTargetX, worldTargetY, worldTargetZ,
+                                        0.0, 1.0, 0.0,
+                                    )
+                                } catch (_: Throwable) {}
+
+                                // If the avatar physically touched a Guild Hall collider, immediately trigger module entry
+                                val nowMs = System.currentTimeMillis()
+                                if (triggeredBuilding != null && (nowMs - cameraController.lastBuildingTriggerTimeMs) > 900L) {
+                                    cameraController.lastBuildingTriggerTimeMs = nowMs
+                                    android.util.Log.i("FilamentHub", "Avatar collider triggered Guild Hall entry: $triggeredBuilding")
+                                    onBuildingSelected(triggeredBuilding)
+                                }
+                            } else {
+                                // Orbit Mode: Read live camera state from manipulator and apply to viewer.camera
+                                try {
+                                    manipulator.getLookAt(eyePosBuf, targetBuf, upwardBuf)
+                                    viewer.camera.lookAt(
+                                        eyePosBuf[0], eyePosBuf[1], eyePosBuf[2],
+                                        targetBuf[0], targetBuf[1], targetBuf[2],
+                                        upwardBuf[0], upwardBuf[1], upwardBuf[2],
+                                    )
+                                    val dx = eyePosBuf[0] - targetBuf[0]
+                                    val dy = eyePosBuf[1] - targetBuf[1]
+                                    val dz = eyePosBuf[2] - targetBuf[2]
+                                    val dist = sqrt(dx * dx + dy * dy + dz * dz).toFloat()
+                                    val pitch = asin((dy / dist).coerceIn(-1.0, 1.0)).toFloat()
+                                    val yaw = atan2(dx, dz).toFloat()
+                                    cameraController.distance = dist
+                                    cameraController.pitch = pitch
+                                    cameraController.yaw = yaw
+                                } catch (_: Throwable) {}
+                            }
 
                             // Query camera view and projection matrices
                             if (w > 0f && h > 0f) {
                                 try {
                                     viewer.camera.getViewMatrix(viewMatrix)
                                     viewer.camera.getProjectionMatrix(projMatrix)
-                                    val rootEntity = viewer.asset?.root ?: 0
-                                    val rootInst = if (rootEntity != 0) tm.getInstance(rootEntity) else 0
-                                    if (rootInst != 0) {
-                                        tm.getTransform(rootInst, rootTransform)
-                                    } else {
-                                        for (i in 0..15) rootTransform[i] = if (i % 5 == 0) 1.0f else 0.0f
+
+                                    // Project physical avatar position to 2D screen coordinates when in Avatar Navigation Mode
+                                    if (cameraController.isFirstPersonMode) {
+                                        val bobY = if (cameraController.isAvatarWalking) 0.08f * kotlin.math.abs(sin(timeSec * 11f)) else 0f
+                                        val avPt = projectWorldToScreen(
+                                            cameraController.avatarX,
+                                            cameraController.avatarY + 0.35f + bobY,
+                                            cameraController.avatarZ,
+                                            rootTransform,
+                                            viewMatrix,
+                                            projMatrix,
+                                            w,
+                                            h,
+                                        )
+                                        val prevAv = lastAvatarScreenPt
+                                        if (avPt != null && (prevAv == null ||
+                                                kotlin.math.hypot(avPt.first - prevAv.first, avPt.second - prevAv.second) > 0.75f)) {
+                                            lastAvatarScreenPt = avPt
+                                            onUpdateAvatarScreenPosition(avPt)
+                                        }
                                     }
 
                                     // 1. Real-time 3D Rooftop Projection for Floating Building Billboards

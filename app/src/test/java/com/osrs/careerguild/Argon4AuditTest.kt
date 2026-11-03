@@ -10,6 +10,7 @@ import com.osrs.careerguild.core.resume.ResumeExperience
 import com.osrs.careerguild.core.resume.ResumeProject
 import com.osrs.careerguild.data.repository.CourierRepository
 import com.osrs.careerguild.data.repository.SkillRepositoryImpl
+import com.osrs.careerguild.domain.model.GuildBuilding
 import com.osrs.careerguild.domain.resume.TailoredResume
 import com.osrs.careerguild.presentation.dashboard.courierguild.CourierAgentConfig
 import com.osrs.careerguild.presentation.dashboard.courierguild.CourierAutoApplyDispatcher
@@ -17,6 +18,7 @@ import com.osrs.careerguild.presentation.hub.CameraController
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -192,5 +194,65 @@ class Argon4AuditTest {
         )
         assertTrue(validCheck.isValid)
         assertTrue(validCheck.missingFields.isEmpty())
+    }
+
+    @Test
+    fun `Test 10 - Heuristic Web Automation bootstrap and portal navigator inject neon amber bounding box, click ripple, and simulated typing`() {
+        val bootstrapJs = CourierAgentConfig.buildHeuristicVisualOverlayBootstrapJs()
+        assertTrue(bootstrapJs.contains("cg-amber-bbox"))
+        assertTrue(bootstrapJs.contains("#FFB300"))
+        assertTrue(bootstrapJs.contains("cg-click-ripple"))
+        assertTrue(bootstrapJs.contains("__cgHeuristicTypeField"))
+
+        val portalNavJs = CourierAgentConfig.buildHeuristicPortalNavigatorJs("Distributed Systems Engineer")
+        assertTrue(portalNavJs.contains("distributed systems engineer"))
+        assertTrue(portalNavJs.contains("__cgUpdateAmberBox"))
+        assertTrue(portalNavJs.contains("__cgTriggerClickRipple"))
+
+        val typingJs = CourierAgentConfig.buildVisualSimulatedTypingJs(
+            selector = "input[name*='first_name']",
+            keywordHints = listOf("first name"),
+            fieldValue = "Savaze",
+            displayName = "First Name",
+        )
+        assertTrue(typingJs.contains("__cgHeuristicTypeField"))
+        assertTrue(typingJs.contains("First Name"))
+    }
+
+    @Test
+    fun `Test 11 - Avatar-Centric 3D Navigation enforces environmental boundaries, prevents building clipping, and triggers Guild Hall entry`() {
+        val controller = CameraController()
+        controller.toggleFirstPersonMode()
+        assertTrue(controller.isFirstPersonMode)
+
+        // 1. Verify environmental boundary clamping (cannot walk outside MAX_PLAZA_RADIUS = 14.5f)
+        controller.avatarX = 0f
+        controller.avatarZ = -14.3f
+        controller.avatarYaw = 0f // facing -Z
+        controller.updateJoystick(normX = 0f, normY = -1.0f) // walk straight forward toward outer rim
+        repeat(20) {
+            controller.stepFirstPersonMovement(dtSec = 0.05f)
+        }
+        val radialDist = kotlin.math.hypot(controller.avatarX, controller.avatarZ)
+        assertTrue("Avatar radial distance ($radialDist) must be clamped to <= ${CameraController.MAX_PLAZA_RADIUS}", radialDist <= CameraController.MAX_PLAZA_RADIUS + 0.01f)
+
+        // 2. Verify physical contact with Courier Guild collider (7.2f, 7.2f) prevents clipping & triggers COURIER_GUILD entry
+        controller.avatarX = 7.2f
+        controller.avatarZ = 4.3f
+        controller.avatarYaw = Math.PI.toFloat() // facing +Z toward (7.2, 7.2)
+        controller.updateJoystick(normX = 0f, normY = -1.0f) // walk straight into Courier Guild collider
+        var triggered: GuildBuilding? = null
+        repeat(20) {
+            val hit = controller.stepFirstPersonMovement(dtSec = 0.05f)
+            if (hit != null) {
+                triggered = hit
+            }
+        }
+        assertNotNull("Touching Courier Guild collider must trigger building entry", triggered)
+        assertEquals(GuildBuilding.COURIER_GUILD, triggered)
+
+        // Verify avatar was pushed outside the building collider and did not clip inside
+        val distFromBuilding = kotlin.math.hypot(controller.avatarX - 7.2f, controller.avatarZ - 7.2f)
+        assertTrue("Avatar must not clip inside building collider (dist=$distFromBuilding)", distFromBuilding > CameraController.BUILDING_COLLIDER_RADIUS)
     }
 }
