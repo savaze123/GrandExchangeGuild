@@ -69,6 +69,7 @@ class AppContainer(context: Context) {
     private val baseResumeDao     = db.baseResumeDao()
     val gitHubRepoDao             = db.gitHubRepoDao()
     val courierAccountDao         = db.courierAccountDao()
+    val applicantAnswerDao        = db.applicantAnswerDao()
 
     // ---------------------------------------------------------------------------
     // Repositories (domain interfaces)

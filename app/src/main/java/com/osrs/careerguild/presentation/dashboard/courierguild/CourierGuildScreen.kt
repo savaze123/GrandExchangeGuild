@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LocalShipping
@@ -119,6 +120,12 @@ enum class ApplicationStatus(val label: String, val color: Color) {
     INTERVIEWING("Interviewing", Color(0xFFBA68C8)),
 }
 
+/** instruction.md §5: Choose Room navigation modes */
+enum class CourierGuildRoomView(val label: String) {
+    AGENT_ROOM("Agent Room (5 Workers)"),
+    LEDGER("Application Ledger"),
+}
+
 data class QueuedApplication(
     val id: String,
     val company: String,
@@ -156,6 +163,8 @@ fun CourierGuildScreen(
     val courierAccounts by appContainer.courierAccountDao.observeAll().collectAsState(initial = emptyList())
     val syncState by appContainer.courierRepository.syncState.collectAsState()
     var showAccountsModal by remember { mutableStateOf(false) }
+    val applicantAnswers by appContainer.applicantAnswerDao.observeAll().collectAsState(initial = emptyList())
+    var showAnswersModal by remember { mutableStateOf(false) }
 
     val applications = remember {
         mutableStateListOf(
@@ -451,6 +460,60 @@ fun CourierGuildScreen(
                 }
             }
 
+            // Task 2: Applicant Answers (Forge Vault) button
+            item {
+                Spacer(modifier = Modifier.height(4.dp))
+                Button(
+                    onClick = { showAnswersModal = true },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF22160E),
+                        contentColor = OsrsGold,
+                    ),
+                    border = BorderStroke(1.5.dp, Color(0xFFFFA726)),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.EditNote,
+                                contentDescription = "Applicant Answers Store",
+                                tint = Color(0xFFFFA726),
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                text = "Applicant Answers (Forge Vault)",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 0.3.sp,
+                                ),
+                                color = Color(0xFFFFA726),
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFF1F1610),
+                            border = BorderStroke(0.8.dp, Color(0xFFFFA726).copy(alpha = 0.7f)),
+                        ) {
+                            Text(
+                                text = "${applicantAnswers.size} Configured",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Bold),
+                                color = Color(0xFFFFB74D),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
             // 2b. Ledger Dashboard Summary Counters (APPLICATION PIPELINE)
             item {
                 LedgerCountersRow(
@@ -559,6 +622,32 @@ fun CourierGuildScreen(
                 }
             },
             onDismiss = { showAccountsModal = false },
+        )
+    }
+
+    // Task 2: Applicant Answers Editor Modal
+    if (showAnswersModal) {
+        ApplicantAnswersDialog(
+            savedAnswers = applicantAnswers,
+            onSaveAnswers = { map ->
+                coroutineScope.launch {
+                    val entities = map.map { (pattern, ans) ->
+                        com.osrs.careerguild.data.local.entity.ApplicantAnswerEntity(
+                            questionPattern = pattern,
+                            answer = ans,
+                        )
+                    }
+                    appContainer.applicantAnswerDao.insertOrUpdateAll(entities)
+                    appendConsoleLog("📝 Forge Vault: Saved ${entities.size} reusable applicant answers.")
+                }
+            },
+            onDeleteAnswer = { pattern ->
+                coroutineScope.launch {
+                    appContainer.applicantAnswerDao.deleteByPattern(pattern)
+                    appendConsoleLog("🗑 Forge Vault: Removed answer for pattern '$pattern'.")
+                }
+            },
+            onDismiss = { showAnswersModal = false },
         )
     }
 
