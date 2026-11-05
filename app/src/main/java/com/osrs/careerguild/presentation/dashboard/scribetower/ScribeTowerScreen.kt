@@ -166,13 +166,14 @@ fun ScribeTowerScreen(
     }
 
     LaunchedEffect(baseResume, selectedJob, userProfile, infusedSkills.toList(), customNotes) {
-        val base = baseResume
+        val base = baseResume?.withUserProfile(userProfile)
         if (base != null) {
             val repos = appContainer.gitHubRepoDao.getAll()
             val tailored = appContainer.resumeTailor.tailor(
                 jobDescription = "${selectedJob.title} at ${selectedJob.company}. ${selectedJob.description}",
                 baseResume = base,
                 gitHubRepos = repos.map { it.toDomain() },
+                userProfile = userProfile,
             )
             val mergedSkills = (infusedSkills.toList() + tailored.skills).distinctBy { it.lowercase().trim() }
             val finalTailored = tailored.copy(
@@ -353,13 +354,14 @@ fun ScribeTowerScreen(
                         isForging = true
                         scope.launch {
                             try {
-                                val savedBase = baseResumeRepo.getBaseResume() ?: baseResume
+                                val savedBase = (baseResumeRepo.getBaseResume() ?: baseResume)?.withUserProfile(userProfile)
                                 val currentTailored = if (savedBase != null) {
                                     val repos = appContainer.gitHubRepoDao.getAll()
                                     val tailored = appContainer.resumeTailor.tailor(
                                         jobDescription = selectedJob.description ?: "${selectedJob.title} at ${selectedJob.company}",
                                         baseResume = savedBase,
                                         gitHubRepos = repos.map { it.toDomain() },
+                                        userProfile = userProfile,
                                     )
                                     val mergedSkills = (infusedSkills.toList() + tailored.skills).distinct()
                                     tailored.copy(

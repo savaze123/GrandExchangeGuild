@@ -27,11 +27,7 @@ class TailoredResumeStore(
 
     private fun isSyntheticContaminated(raw: String): Boolean {
         if (!rejectSyntheticFixtures) return false
-        val lower = raw.lowercase()
-        return lower.contains("@synthetic.invalid") ||
-            lower.contains("syntheticcloud") ||
-            lower.contains("synthetic state university") ||
-            lower.contains("alexmercer-synth")
+        return raw.lowercase().contains(".invalid")
     }
 
     fun getStorageDir(): File {

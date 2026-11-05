@@ -37,21 +37,9 @@ class CareerGuildApp : Application() {
         // Task 1 / Task 4: Ingest any pending Forge results on app start safely on Dispatchers.IO
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             try {
-                // Purge any synthetic test fixtures that may have leaked from an earlier androidTest run
+                // Validate stored BaseResume on startup (purges any RFC 2606 .invalid test entry)
                 appContainer.baseResumeRepository.getBaseResume()
-                java.io.File(filesDir, "generated_resumes").listFiles()?.forEach { pdf ->
-                    val nameLower = pdf.name.lowercase()
-                    if (nameLower.contains("alex_mercer") || nameLower.contains("synthetic")) {
-                        pdf.delete()
-                    }
-                }
                 // Phase 1.2: Startup crash recovery for Courier tasks
-                val allTasks = appContainer.courierTaskDao.getAll()
-                for (t in allTasks) {
-                    if (t.taskId.startsWith("fixture_") || t.taskId.startsWith("crash_") || t.company.startsWith("Synthetic")) {
-                        appContainer.courierTaskDao.deleteById(t.taskId)
-                    }
-                }
                 val existingTasks = appContainer.courierTaskDao.getAll()
                 val recovered = com.osrs.careerguild.presentation.dashboard.courierguild.CourierStateMachine.recoverOnStartup(existingTasks)
                 var hasQueued = false

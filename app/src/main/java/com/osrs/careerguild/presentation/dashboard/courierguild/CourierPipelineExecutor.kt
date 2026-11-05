@@ -105,7 +105,7 @@ object CourierPipelineExecutor {
             if (check.isValid) {
                 container.tailoredResumeStore.saveTailoredResume(task.jobId, existingTailored)
                 val existingPdf = task.resumePdfPath?.let { File(it) }?.takeIf {
-                    it.isFile && it.length() > 0 && !it.name.lowercase().contains("alex_mercer") && !it.name.lowercase().contains("synthetic")
+                    it.isFile && it.length() > 0
                 } ?: ResumeForgePdfGenerator.forgeAtsResume(
                     context = context,
                     tailoredResume = existingTailored,

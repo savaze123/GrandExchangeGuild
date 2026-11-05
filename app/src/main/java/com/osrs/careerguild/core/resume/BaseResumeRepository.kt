@@ -31,11 +31,7 @@ class BaseResumeRepositoryImpl(
 
     private fun isSyntheticContaminated(text: String?): Boolean {
         if (!rejectSyntheticFixtures || text.isNullOrBlank()) return false
-        val lower = text.lowercase()
-        return lower.contains("@synthetic.invalid") ||
-            lower.contains("syntheticcloud") ||
-            lower.contains("synthetic state university") ||
-            lower.contains("alexmercer-synth")
+        return text.lowercase().contains(".invalid")
     }
 
     override fun observeBaseResume(): Flow<BaseResume?> {
