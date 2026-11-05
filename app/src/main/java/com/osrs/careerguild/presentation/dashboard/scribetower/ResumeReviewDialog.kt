@@ -34,6 +34,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -52,7 +54,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import com.osrs.careerguild.core.resume.BaseResume
+import com.osrs.careerguild.core.resume.ResumeBulletMetric
 import com.osrs.careerguild.core.resume.ResumeBulletUtils
+import com.osrs.careerguild.core.resume.ResumeDateValidator
 import com.osrs.careerguild.core.resume.ResumeExperience
 
 private val OsrsGold = Color(0xFFFFD700)
@@ -210,6 +214,37 @@ fun ResumeReviewDialog(
                                 ),
                             )
 
+                            // Date Validation Warnings
+                            val dateValidation = remember(editableExperience) {
+                                ResumeDateValidator.validateExperienceDates(editableExperience)
+                            }
+                            if (dateValidation.issues.isNotEmpty()) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF3E2723),
+                                    border = BorderStroke(1.dp, Color(0xFFFF9800)),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFF9800), modifier = Modifier.size(14.dp))
+                                            Text(
+                                                text = "Date Format & Sequence Notices (Never edited silently):",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 9.5.sp),
+                                                color = Color(0xFFFFB74D),
+                                            )
+                                        }
+                                        dateValidation.issues.forEach { issue ->
+                                            Text(
+                                                text = "• $issue",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp),
+                                                color = Color(0xFFFFCC80),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
                             Text(
                                 text = "Verified Work Experience (${editableExperience.size} entries):",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
@@ -234,8 +269,77 @@ fun ResumeReviewDialog(
                                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                                             color = Color.LightGray,
                                         )
+
+                                        // Current Role Toggle & End Date Requirement
+                                        val isCurrent = exp.isConfirmedCurrent || exp.isCurrent ||
+                                            exp.endDate?.equals("Present", ignoreCase = true) == true ||
+                                            exp.endDate.isNullOrBlank()
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                        ) {
+                                            Text(
+                                                text = "This is my current role",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.SemiBold),
+                                                color = if (isCurrent) Color(0xFF81C784) else Color.LightGray,
+                                            )
+                                            Switch(
+                                                checked = isCurrent,
+                                                onCheckedChange = { checked ->
+                                                    editableExperience = editableExperience.mapIndexed { i, e ->
+                                                        if (i == idx) {
+                                                            if (checked) {
+                                                                e.copy(isCurrent = true, isConfirmedCurrent = true, endDate = "Present")
+                                                            } else {
+                                                                e.copy(isCurrent = false, isConfirmedCurrent = false, endDate = "")
+                                                            }
+                                                        } else e
+                                                    }
+                                                },
+                                                colors = SwitchDefaults.colors(
+                                                    checkedThumbColor = OsrsGold,
+                                                    checkedTrackColor = Color(0xFF1B3B22),
+                                                ),
+                                            )
+                                        }
+
+                                        if (!isCurrent) {
+                                            OutlinedTextField(
+                                                value = exp.endDate ?: "",
+                                                onValueChange = { newEnd ->
+                                                    editableExperience = editableExperience.mapIndexed { i, e ->
+                                                        if (i == idx) e.copy(endDate = newEnd) else e
+                                                    }
+                                                },
+                                                label = { Text("End Date (Mon YYYY, e.g. Jun 2024)", fontSize = 9.sp) },
+                                                isError = exp.endDate.isNullOrBlank(),
+                                                modifier = Modifier.fillMaxWidth(),
+                                                textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 9.sp),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = OsrsGold,
+                                                    unfocusedBorderColor = OsrsDarkBorder,
+                                                    focusedTextColor = Color.White,
+                                                    unfocusedTextColor = Color.White,
+                                                ),
+                                                singleLine = true,
+                                            )
+                                            if (exp.endDate.isNullOrBlank()) {
+                                                Text(
+                                                    text = "Required: please specify an end date before saving.",
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                                                    color = Color(0xFFFF8A80),
+                                                )
+                                            }
+                                        }
+
                                         exp.bullets.forEachIndexed { bIdx, b ->
                                             val isFrag = bIdx > 0 && ResumeBulletUtils.isFragment(b)
+                                            val hasNumber = Regex("""\b\d+""").containsMatchIn(b)
+                                            val vagueWords = listOf("reducing", "improving", "increasing", "streamlining", "faster", "efficiency")
+                                            val hasVague = vagueWords.any { b.contains(it, ignoreCase = true) }
+
                                             Column(modifier = Modifier.padding(start = 4.dp, top = 2.dp)) {
                                                 Row(
                                                     modifier = Modifier.fillMaxWidth(),
@@ -288,6 +392,39 @@ fun ResumeReviewDialog(
                                                         )
                                                     }
                                                 }
+
+                                                // Task 5: Optional metric field for vague impact bullets
+                                                if (!hasNumber && hasVague) {
+                                                    var metricValue by remember(b) { mutableStateOf(exp.userMetrics[b] ?: "") }
+                                                    OutlinedTextField(
+                                                        value = metricValue,
+                                                        onValueChange = { newVal ->
+                                                            metricValue = newVal
+                                                            val updatedMap = exp.userMetrics.toMutableMap()
+                                                            if (newVal.isNotBlank()) {
+                                                                updatedMap[b] = newVal.trim()
+                                                            } else {
+                                                                updatedMap.remove(b)
+                                                            }
+                                                            editableExperience = editableExperience.mapIndexed { i, e ->
+                                                                if (i == idx) e.copy(
+                                                                    userMetrics = updatedMap,
+                                                                    bulletMetrics = updatedMap.map { (t, m) -> ResumeBulletMetric(t, m, userProvided = true) }
+                                                                ) else e
+                                                            }
+                                                        },
+                                                        label = { Text("Add a real number if you have one (records per day, percent faster, hours saved)", fontSize = 8.sp) },
+                                                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 4.dp),
+                                                        textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 8.5.sp),
+                                                        colors = OutlinedTextFieldDefaults.colors(
+                                                            focusedBorderColor = Color(0xFF00E5FF),
+                                                            unfocusedBorderColor = Color(0xFF4A3A2A),
+                                                            focusedTextColor = Color.White,
+                                                            unfocusedTextColor = Color.White,
+                                                        ),
+                                                        singleLine = true,
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -299,6 +436,10 @@ fun ResumeReviewDialog(
             }
         },
         confirmButton = {
+            val hasMissingEndDates = editableExperience.any { exp ->
+                val isPresent = exp.isConfirmedCurrent || exp.isCurrent || exp.endDate?.equals("Present", ignoreCase = true) == true
+                !isPresent && exp.endDate.isNullOrBlank()
+            }
             Button(
                 onClick = {
                     val updatedSkills = candidateSkills.split(",").map { it.trim() }.filter { it.isNotBlank() }
@@ -309,12 +450,16 @@ fun ResumeReviewDialog(
                     )
                     onConfirm(confirmed)
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = OsrsGold),
+                enabled = !hasMissingEndDates,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = OsrsGold,
+                    disabledContainerColor = Color(0xFF4A3E2A),
+                ),
                 shape = RoundedCornerShape(6.dp),
             ) {
-                Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Check, contentDescription = null, tint = if (!hasMissingEndDates) Color.Black else Color.Gray, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Save Resume", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                Text("Save Resume", color = if (!hasMissingEndDates) Color.Black else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 11.sp)
             }
         },
         dismissButton = {

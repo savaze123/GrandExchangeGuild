@@ -63,6 +63,13 @@ data class ResumeContact(
 )
 
 @Serializable
+data class ResumeBulletMetric(
+    val bulletText: String,
+    val userMetric: String? = null,
+    val userProvided: Boolean = true,
+)
+
+@Serializable
 data class ResumeExperience(
     val employer: String = "",
     val title: String = "",
@@ -70,8 +77,11 @@ data class ResumeExperience(
     val startDate: String? = null,
     val endDate: String? = null,
     val isCurrent: Boolean = false,
+    val isConfirmedCurrent: Boolean = false,
     val bullets: List<String> = emptyList(),
     val isActive: Boolean = true,
+    val bulletMetrics: List<ResumeBulletMetric> = emptyList(),
+    val userMetrics: Map<String, String> = emptyMap(),
 )
 
 @Serializable
@@ -103,4 +113,6 @@ data class ResumeProject(
     val url: String? = null,
     val bullets: List<String> = emptyList(),
     val isActive: Boolean = true,
+    val bulletMetrics: List<ResumeBulletMetric> = emptyList(),
+    val userMetrics: Map<String, String> = emptyMap(),
 )

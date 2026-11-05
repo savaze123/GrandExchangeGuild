@@ -333,9 +333,14 @@ object ResumeForgePdfGenerator {
             for (rawExp in resume.experience) {
                 val exp = TailoredResume.sanitizeExperience(rawExp)
                 val header = "${exp.employer}  |  ${exp.title}"
+                val isConfirmed = exp.isConfirmedCurrent || (exp.isCurrent && (exp.endDate.isNullOrBlank() || exp.endDate.equals("Present", ignoreCase = true)))
                 val dateLoc = buildString {
                     if (!exp.startDate.isNullOrBlank()) append(exp.startDate)
-                    if (!exp.endDate.isNullOrBlank()) append(" – ${exp.endDate}") else if (exp.isCurrent) append(" – Present")
+                    if (isConfirmed) {
+                        append(" – Present")
+                    } else if (!exp.endDate.isNullOrBlank() && !exp.endDate.equals("Present", ignoreCase = true)) {
+                        append(" – ${exp.endDate}")
+                    }
                     if (!exp.location.isNullOrBlank()) append("  ·  ${exp.location}")
                 }
                 val headerWidth = boldBodyPaint.measureText(header)

@@ -47,20 +47,18 @@ object ResumeVerifier {
                 violations.add("Modified or fabricated title '${exp.title}' for employer '${exp.employer}' (expected '${baseExp.title}')")
             }
 
-            if (!exp.startDate.isNullOrBlank() && baseExp.startDate != null) {
-                if (normalize(exp.startDate) != normalize(baseExp.startDate)) {
-                    violations.add("Mismatched start date '${exp.startDate}' for '${exp.employer}' (expected '${baseExp.startDate}')")
-                }
+            // Reject any tailored date that differs from the confirmed base dates
+            if (normalize(exp.startDate.orEmpty()) != normalize(baseExp.startDate.orEmpty())) {
+                violations.add("Modified start date '${exp.startDate}' for '${exp.employer}' (expected '${baseExp.startDate}')")
             }
 
-            if (!exp.endDate.isNullOrBlank() && baseExp.endDate != null) {
-                if (normalize(exp.endDate) != normalize(baseExp.endDate)) {
-                    violations.add("Mismatched end date '${exp.endDate}' for '${exp.employer}' (expected '${baseExp.endDate}')")
-                }
+            if (normalize(exp.endDate.orEmpty()) != normalize(baseExp.endDate.orEmpty())) {
+                violations.add("Modified end date '${exp.endDate}' for '${exp.employer}' (expected '${baseExp.endDate}')")
             }
 
-            // Check numbers in bullets against that same employer's base text
-            val baseEmployerText = baseExp.bullets.joinToString(" ")
+            // Check numbers in bullets against that same employer's base text + userProvided metrics
+            val userProvidedMetrics = baseExp.bulletMetrics.mapNotNull { it.userMetric } + baseExp.userMetrics.values
+            val baseEmployerText = baseExp.bullets.joinToString(" ") + " " + userProvidedMetrics.joinToString(" ")
             val baseNumbers = numberRegex.findAll(baseEmployerText).map { it.value.replace("%", "").trim() }.toSet()
 
             for (bullet in exp.bullets) {
