@@ -257,7 +257,7 @@ fun CourierGuildScreen(
 
     // Location & Dispatch search parameters (Dynamic from UserProfileManager)
     var zipCode by remember(userProfile.location) {
-        mutableStateOf(userProfile.location.filter { it.isDigit() }.ifBlank { "10001" })
+        mutableStateOf(userProfile.location.filter { it.isDigit() })
     }
     var searchRadius by remember { mutableStateOf("25 mi") }
     var workMode by remember { mutableStateOf("All") }
@@ -291,58 +291,59 @@ fun CourierGuildScreen(
         }
     }
 
-    fun enqueuePersistentCourierTask(app: QueuedApplication, pdfPathOverride: String? = null) {
-        coroutineScope.launch {
-            val openOrSubmittedCount = withContext(Dispatchers.IO) {
-                appContainer.courierTaskDao.countOpenOrSubmittedForJob(app.id)
-            }
-            if (openOrSubmittedCount > 0) {
-                val msg = "Duplicate Guard: Job ${app.company} (${app.title}) already has an open or submitted task."
-                appendConsoleLog("⚠ $msg")
-                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            val nowMs = System.currentTimeMillis()
-            val taskId = "courier_${app.id}_$nowMs"
-            val atsPlatform = CourierAgentConfig.detectAtsPlatform(app.atsUrl, app.platform)
-            val submitPolicy = if (app.allowAutoSubmit) {
-                SubmitPolicy.AUTO_SUBMIT.name
-            } else {
-                SubmitPolicy.REVIEW_BEFORE_SUBMIT.name
-            }
-            val entity = com.osrs.careerguild.data.local.entity.CourierTaskEntity(
-                taskId = taskId,
-                jobId = app.id,
-                jobUrl = app.atsUrl,
-                ats = atsPlatform,
-                title = app.title,
-                company = app.company,
-                status = CourierTaskStatus.QUEUED.name,
-                step = "QUEUED",
-                currentUrl = app.atsUrl,
-                filledFieldsJson = "{}",
-                blockedReason = null,
-                blockedFieldsJson = "[]",
-                resumePdfPath = pdfPathOverride,
-                submitPolicy = submitPolicy,
-                reviewRequired = !app.allowAutoSubmit,
-                attempts = 0,
-                lastError = null,
-                snoozedUntil = null,
-                createdAt = nowMs,
-                updatedAt = nowMs,
-            )
-            withContext(Dispatchers.IO) {
-                appContainer.courierTaskDao.upsert(entity)
-            }
-            CourierQueueWorker.enqueueTask(
-                context = context,
-                taskId = taskId,
-                requireNetwork = !app.atsUrl.contains("appassets.androidplatform.net"),
-                replaceExisting = false,
-            )
-            appendConsoleLog("🚀 Enqueued persistent Courier background task $taskId for ${app.company} (${app.title}) [policy=$submitPolicy].")
+    suspend fun enqueuePersistentCourierTask(
+        app: QueuedApplication,
+        taskId: String = "courier_${app.id}_${System.currentTimeMillis()}",
+        pdfPathOverride: String? = null,
+    ) {
+        val openOrSubmittedCount = withContext(Dispatchers.IO) {
+            appContainer.courierTaskDao.countOpenOrSubmittedForJob(app.id)
         }
+        if (openOrSubmittedCount > 0) {
+            val msg = "Duplicate Guard: Job ${app.company} (${app.title}) already has an open or submitted task."
+            appendConsoleLog("⚠ $msg")
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val nowMs = System.currentTimeMillis()
+        val atsPlatform = CourierAgentConfig.detectAtsPlatform(app.atsUrl, app.platform)
+        val submitPolicy = if (app.allowAutoSubmit) {
+            SubmitPolicy.AUTO_SUBMIT.name
+        } else {
+            SubmitPolicy.REVIEW_BEFORE_SUBMIT.name
+        }
+        val entity = com.osrs.careerguild.data.local.entity.CourierTaskEntity(
+            taskId = taskId,
+            jobId = app.id,
+            jobUrl = app.atsUrl,
+            ats = atsPlatform,
+            title = app.title,
+            company = app.company,
+            status = CourierTaskStatus.QUEUED.name,
+            step = "QUEUED",
+            currentUrl = app.atsUrl,
+            filledFieldsJson = "{}",
+            blockedReason = null,
+            blockedFieldsJson = "[]",
+            resumePdfPath = pdfPathOverride,
+            submitPolicy = submitPolicy,
+            reviewRequired = !app.allowAutoSubmit,
+            attempts = 0,
+            lastError = null,
+            snoozedUntil = null,
+            createdAt = nowMs,
+            updatedAt = nowMs,
+        )
+        withContext(Dispatchers.IO) {
+            appContainer.courierTaskDao.upsert(entity)
+        }
+        CourierQueueWorker.enqueueTask(
+            context = context,
+            taskId = taskId,
+            requireNetwork = !app.atsUrl.contains("appassets.androidplatform.net"),
+            replaceExisting = false,
+        )
+        appendConsoleLog("🚀 Enqueued persistent Courier background task $taskId for ${app.company} (${app.title}) [policy=$submitPolicy].")
     }
 
     // Sync live Room courier_task status & blocked fields back to the in-memory ledger cards
@@ -476,12 +477,12 @@ fun CourierGuildScreen(
                 val fields = ForgeTaskFields(
                     firstName = firstName,
                     lastName = lastName,
-                    email = profile.email.ifBlank { null },
-                    phone = profile.phone.ifBlank { null },
-                    location = profile.location.ifBlank { null },
-                    linkedinUrl = null,
-                    githubUrl = if (profile.github.isNotBlank()) profile.github else null,
-                    website = null,
+                    email = profile.email.ifBlank { base.contact.email.orEmpty() }.ifBlank { null },
+                    phone = profile.phone.ifBlank { base.contact.phone.orEmpty() }.ifBlank { null },
+                    location = profile.location.ifBlank { base.contact.location.orEmpty() }.ifBlank { null },
+                    linkedinUrl = base.contact.linkedin?.ifBlank { null },
+                    githubUrl = profile.github.ifBlank { base.contact.github.orEmpty() }.ifBlank { null },
+                    website = base.contact.website?.ifBlank { null },
                 )
 
                 val taskId = "courier_${app.id}_${System.currentTimeMillis()}"
@@ -515,7 +516,7 @@ fun CourierGuildScreen(
                 }
 
                 appendConsoleLog("🚀 Forge Vault & Courier: Persistent background worker enqueued for ${app.company} (${app.title}) [policy=${if (app.allowAutoSubmit) "AUTO_SUBMIT" else "REVIEW_BEFORE_SUBMIT"}].")
-                enqueuePersistentCourierTask(app, pdfPathOverride = pdfFile.absolutePath)
+                enqueuePersistentCourierTask(app, taskId = taskId, pdfPathOverride = pdfFile.absolutePath)
                 Toast.makeText(context, "Dispatched Courier: ${app.company}", Toast.LENGTH_SHORT).show()
             } finally {
                 activeDispatchId = null
