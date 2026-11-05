@@ -73,14 +73,18 @@ class ResumeTextExtractor(private val context: Context) {
     }
 
     private suspend fun extractFromPdf(uri: Uri): String {
-        // Step 1: Text-layer extraction via PDFBox
+        // Step 1: Text-layer extraction via PDFBox with position-aware hanging indent & bullet detection
         var textLayer = ""
         try {
             context.contentResolver.openInputStream(uri)?.use { stream ->
                 PDDocument.load(stream).use { document ->
-                    val stripper = PDFTextStripper()
-                    stripper.sortByPosition = true
-                    textLayer = stripper.getText(document).trim()
+                    val stripper = PositionAwareResumePdfStripper()
+                    textLayer = stripper.extractGroupedText(document).trim()
+                    if (textLayer.isBlank()) {
+                        val fallbackStripper = PDFTextStripper()
+                        fallbackStripper.sortByPosition = true
+                        textLayer = fallbackStripper.getText(document).trim()
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -160,18 +164,19 @@ class ResumeTextExtractor(private val context: Context) {
                 val rawToken = token.value
                 when {
                     rawToken.startsWith("<w:tab") -> paragraphText.append(" | ")
-                    rawToken.startsWith("<w:br") -> paragraphText.append("\n")
+                    rawToken.startsWith("<w:br") -> paragraphText.append(" ")
                     else -> paragraphText.append(decodeXml(token.groupValues[1]))
                 }
             }
-            val lines = paragraphText.toString().lines().map { it.trim() }.filter { it.isNotEmpty() }
-            for ((idx, line) in lines.withIndex()) {
-                val formattedLine = if (isXmlBullet && idx == 0 && !line.startsWith("•") && !line.startsWith("-") && !line.startsWith("*")) {
-                    "• $line"
+            // Treat each paragraph (w:p) as one bullet/line
+            val cleanParagraph = paragraphText.toString().replace(Regex("\\s+"), " ").trim()
+            if (cleanParagraph.isNotEmpty()) {
+                val formatted = if (isXmlBullet && !ResumeBulletUtils.startsWithBulletMarker(cleanParagraph)) {
+                    "• $cleanParagraph"
                 } else {
-                    line
+                    cleanParagraph
                 }
-                sb.append(formattedLine).append("\n")
+                sb.append(formatted).append("\n")
             }
         }
 
@@ -207,6 +212,106 @@ class ResumeTextExtractor(private val context: Context) {
             }
         } catch (_: Exception) {}
         return name
+    }
+}
+
+/**
+ * PDFBox stripper that uses character and line geometry to group wrapped bullet lines
+ * based on hanging indents before raw text output is produced.
+ */
+private class PositionAwareResumePdfStripper : PDFTextStripper() {
+    init {
+        sortByPosition = true
+    }
+
+    private data class LineGeometry(
+        val text: String,
+        val startX: Float,
+        val y: Float,
+    )
+
+    private val lines = mutableListOf<LineGeometry>()
+    private val lineBuffer = StringBuilder()
+    private var lineStartX: Float? = null
+    private var lineY: Float? = null
+
+    override fun writeString(text: String, textPositions: List<com.tom_roush.pdfbox.text.TextPosition>) {
+        if (textPositions.isNotEmpty() && lineStartX == null) {
+            lineStartX = textPositions.first().xDirAdj
+            lineY = textPositions.first().yDirAdj
+        }
+        lineBuffer.append(text)
+    }
+
+    override fun writeLineSeparator() {
+        flushCurrentLine()
+        super.writeLineSeparator()
+    }
+
+    private fun flushCurrentLine() {
+        val lineText = lineBuffer.toString().trim()
+        val sx = lineStartX
+        val sy = lineY
+        if (lineText.isNotEmpty() && sx != null && sy != null) {
+            lines.add(LineGeometry(lineText, sx, sy))
+        }
+        lineBuffer.clear()
+        lineStartX = null
+        lineY = null
+    }
+
+    fun extractGroupedText(document: PDDocument): String {
+        lines.clear()
+        lineBuffer.clear()
+        lineStartX = null
+        lineY = null
+
+        val writer = java.io.StringWriter()
+        writeText(document, writer)
+        flushCurrentLine()
+
+        if (lines.isEmpty()) {
+            return writer.toString().trim()
+        }
+
+        val grouped = mutableListOf<String>()
+        var activeBullet: StringBuilder? = null
+        var bulletStartX = 0f
+        var textStartX = 0f
+        var lastLineY = 0f
+
+        for (line in lines) {
+            val text = line.text.trim()
+            val startsWithBullet = ResumeBulletUtils.startsWithBulletMarker(text)
+
+            if (startsWithBullet) {
+                activeBullet?.let { grouped.add(it.toString()) }
+                activeBullet = StringBuilder(text)
+                bulletStartX = line.startX
+                textStartX = line.startX + 8f
+                lastLineY = line.y
+            } else if (activeBullet != null) {
+                val yDelta = line.y - lastLineY
+                val isHangingIndent = (line.startX >= textStartX - 6f) && (line.startX > bulletStartX + 4f)
+                val isNormalLineSpacing = yDelta in 6f..24f
+
+                if (isHangingIndent && isNormalLineSpacing) {
+                    val prevText = activeBullet.toString()
+                    val merged = ResumeBulletUtils.mergeLines(prevText, text)
+                    activeBullet = StringBuilder(merged)
+                    lastLineY = line.y
+                } else {
+                    grouped.add(activeBullet.toString())
+                    activeBullet = null
+                    grouped.add(text)
+                }
+            } else {
+                grouped.add(text)
+            }
+        }
+        activeBullet?.let { grouped.add(it.toString()) }
+
+        return grouped.joinToString("\n")
     }
 }
 

@@ -61,7 +61,11 @@ class ResumeStructurer(
 
                 tokenGovernor.recordScoringBatch(1)
 
-                val parsedResume = parseJsonResponse(responseText)
+                val rawParsed = parseJsonResponse(responseText)
+                val parsedResume = rawParsed.copy(
+                    experience = rawParsed.experience.map { it.copy(bullets = ResumeBulletUtils.mergeFragments(it.bullets)) },
+                    projects = rawParsed.projects.map { it.copy(bullets = ResumeBulletUtils.mergeFragments(it.bullets)) },
+                )
                 val verified = verifyExtraction(rawText, parsedResume)
                 val vResume = verified.resume
                 val hResume = heuristic.resume
@@ -76,9 +80,11 @@ class ResumeStructurer(
                     (hResume.skills + vResume.skills).distinct()
                 }
 
-                val mergedExperience = if (vResume.experience.isNotEmpty()) vResume.experience else hResume.experience
+                val mergedExperience = (if (vResume.experience.isNotEmpty()) vResume.experience else hResume.experience)
+                    .map { it.copy(bullets = ResumeBulletUtils.mergeFragments(it.bullets)) }
                 val mergedEducation = if (vResume.education.isNotEmpty()) vResume.education else hResume.education
-                val mergedProjects = if (vResume.projects.isNotEmpty()) vResume.projects else hResume.projects
+                val mergedProjects = (if (vResume.projects.isNotEmpty()) vResume.projects else hResume.projects)
+                    .map { it.copy(bullets = ResumeBulletUtils.mergeFragments(it.bullets)) }
                 val mergedCerts = if (vResume.certifications.isNotEmpty()) vResume.certifications else hResume.certifications
 
                 StructuredResumeResult(
@@ -653,8 +659,8 @@ class ResumeStructurer(
             contact = contact,
             summary = parsedSummary,
             skills = parsedSkills,
-            experience = parsedExperiences.map { sanitizeExpEntry(it) },
-            projects = parsedProjects,
+            experience = parsedExperiences.map { sanitizeExpEntry(it).copy(bullets = ResumeBulletUtils.mergeFragments(it.bullets)) },
+            projects = parsedProjects.map { it.copy(bullets = ResumeBulletUtils.mergeFragments(it.bullets)) },
             education = parsedEducation,
             certifications = parsedCerts,
         )

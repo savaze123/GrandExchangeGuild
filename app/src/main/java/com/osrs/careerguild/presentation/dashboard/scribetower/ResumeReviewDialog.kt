@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -51,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import com.osrs.careerguild.core.resume.BaseResume
+import com.osrs.careerguild.core.resume.ResumeBulletUtils
 import com.osrs.careerguild.core.resume.ResumeExperience
 
 private val OsrsGold = Color(0xFFFFD700)
@@ -232,13 +234,61 @@ fun ResumeReviewDialog(
                                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                                             color = Color.LightGray,
                                         )
-                                        exp.bullets.forEach { b ->
-                                            Text(
-                                                text = "• $b",
-                                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
-                                                color = Color(0xFFDDDDDD),
-                                                modifier = Modifier.padding(start = 4.dp),
-                                            )
+                                        exp.bullets.forEachIndexed { bIdx, b ->
+                                            val isFrag = bIdx > 0 && ResumeBulletUtils.isFragment(b)
+                                            Column(modifier = Modifier.padding(start = 4.dp, top = 2.dp)) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    verticalAlignment = Alignment.Top,
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                ) {
+                                                    Text(
+                                                        text = "• $b",
+                                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+                                                        color = if (isFrag) Color(0xFFFFB74D) else Color(0xFFDDDDDD),
+                                                        modifier = Modifier.weight(1f),
+                                                    )
+                                                    if (isFrag) {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(3.dp),
+                                                            color = Color(0xFF4E2600),
+                                                            border = BorderStroke(0.6.dp, Color(0xFFFF9800)),
+                                                            modifier = Modifier.padding(start = 4.dp),
+                                                        ) {
+                                                            Text(
+                                                                text = "Fragment",
+                                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp, fontWeight = FontWeight.Bold),
+                                                                color = Color(0xFFFFB74D),
+                                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                if (isFrag) {
+                                                    Button(
+                                                        onClick = {
+                                                            val prev = exp.bullets[bIdx - 1]
+                                                            val merged = ResumeBulletUtils.mergeLines(prev, b)
+                                                            val newBullets = exp.bullets.toMutableList()
+                                                            newBullets[bIdx - 1] = merged
+                                                            newBullets.removeAt(bIdx)
+                                                            editableExperience = editableExperience.mapIndexed { i, e ->
+                                                                if (i == idx) e.copy(bullets = newBullets) else e
+                                                            }
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D4037)),
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 1.dp),
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
+                                                    ) {
+                                                        Text(
+                                                            text = "↳ Merge with previous",
+                                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp, fontWeight = FontWeight.SemiBold),
+                                                            color = Color(0xFFFFD54F),
+                                                        )
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
