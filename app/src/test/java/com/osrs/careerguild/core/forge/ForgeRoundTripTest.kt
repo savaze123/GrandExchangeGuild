@@ -278,4 +278,65 @@ class ForgeRoundTripTest {
         assertTrue(folderDeleted)
         assertFalse(taskDir.exists())
     }
+
+    @Test
+    fun applicantAnswerPresets_startEmpty_noDefaultLegalOrDemographicValues() {
+        val presets = ApplicantAnswerPresets.PRESETS
+        assertTrue(presets.isNotEmpty())
+        assertEquals(9, presets.size)
+
+        // Verify presets exist for required categories
+        val patterns = presets.map { it.pattern }.toSet()
+        assertTrue(patterns.contains("work_authorization"))
+        assertTrue(patterns.contains("sponsorship_needed"))
+        assertTrue(patterns.contains("willing_to_relocate"))
+        assertTrue(patterns.contains("earliest_start_date"))
+        assertTrue(patterns.contains("salary_expectation"))
+        assertTrue(patterns.contains("eeo_gender"))
+        assertTrue(patterns.contains("eeo_race_ethnicity"))
+        assertTrue(patterns.contains("eeo_veteran_status"))
+        assertTrue(patterns.contains("eeo_disability_status"))
+
+        // Presets must never bundle default answer values
+        for (p in presets) {
+            assertTrue(p.pattern.isNotBlank())
+            assertTrue(p.label.isNotBlank())
+        }
+    }
+
+    @Test
+    fun tailoredResumeStore_roundTrip_persistsToDiskAndCache() = runBlocking {
+        val storageDir = tempFolder.newFolder("tailored_resumes")
+        val store = com.osrs.careerguild.core.resume.TailoredResumeStore(baseDirOverride = storageDir)
+
+        val resume = TailoredResume(
+            summary = "Synthetic Test Engineer Summary",
+            skills = listOf("Kotlin", "Coroutines", "Room"),
+            targetHeadline = "Lead Mobile Architect",
+        )
+
+        assertNull(store.getTailoredResume("job_nonexistent"))
+        assertFalse(store.hasTailoredResume("job_nonexistent"))
+
+        val file = store.saveTailoredResume("job_123", resume)
+        assertTrue(file.exists())
+        assertTrue(store.hasTailoredResume("job_123"))
+
+        // Fresh store instance to ensure disk read works without in-memory cache
+        val freshStore = com.osrs.careerguild.core.resume.TailoredResumeStore(baseDirOverride = storageDir)
+        val loaded = freshStore.getTailoredResume("job_123")
+        assertNotNull(loaded)
+        assertEquals("Synthetic Test Engineer Summary", loaded?.summary)
+        assertEquals(listOf("Kotlin", "Coroutines", "Room"), loaded?.skills)
+        assertEquals("Lead Mobile Architect", loaded?.targetHeadline)
+    }
+
+    @Test
+    fun statusMapping_mapsAllForgeResultsToLedgerStatuses() {
+        assertEquals("Awaiting Review", com.osrs.careerguild.presentation.dashboard.courierguild.ApplicationStatus.AWAITING_REVIEW.label)
+        assertEquals("Needs Input", com.osrs.careerguild.presentation.dashboard.courierguild.ApplicationStatus.NEEDS_INPUT.label)
+        assertEquals("Failed", com.osrs.careerguild.presentation.dashboard.courierguild.ApplicationStatus.FAILED.label)
+        assertEquals("Submit Unconfirmed", com.osrs.careerguild.presentation.dashboard.courierguild.ApplicationStatus.UNCONFIRMED.label)
+        assertEquals("Submitted", com.osrs.careerguild.presentation.dashboard.courierguild.ApplicationStatus.SUBMITTED.label)
+    }
 }

@@ -84,6 +84,7 @@ class AppContainer(context: Context) {
     val resumeTailor         = com.osrs.careerguild.domain.resume.ResumeTailor(tokenGovernor)
     val forgeOutbox          = ForgeOutbox(appContext)
     val forgeInbox           = ForgeInbox(appContext)
+    val tailoredResumeStore  = com.osrs.careerguild.core.resume.TailoredResumeStore(appContext)
 
     // ---------------------------------------------------------------------------
     // Remote / Scraper
@@ -119,7 +120,7 @@ class AppContainer(context: Context) {
         skillRepository = skillRepository,
     )
     private val blockCompanyUseCase = BlockCompanyUseCase(jobRepository)
-    private val markAppliedUseCase  = MarkAppliedUseCase(jobRepository)
+    val markAppliedUseCase          = MarkAppliedUseCase(jobRepository)
 
     // ---------------------------------------------------------------------------
     // SAFE_CLI_ENGINE dispatcher

@@ -88,12 +88,18 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import com.osrs.careerguild.core.network.LinkValidator
+import com.osrs.careerguild.core.forge.ForgeAnswer
+import com.osrs.careerguild.core.forge.ForgeResultStatus
+import com.osrs.careerguild.core.forge.ForgeTask
+import com.osrs.careerguild.core.forge.ForgeTaskFields
+import com.osrs.careerguild.domain.resume.ResumeVerifier
 import com.osrs.careerguild.core.pdf.ResumeForgePdfGenerator
 import com.osrs.careerguild.core.profile.UserProfile
 import com.osrs.careerguild.core.profile.UserProfileManager
 import com.osrs.careerguild.core.resume.BaseResume
 import com.osrs.careerguild.data.local.dao.CourierAccountDao
 import com.osrs.careerguild.data.local.entity.CourierAccountEntity
+import com.osrs.careerguild.data.local.entity.toDomain
 import com.osrs.careerguild.data.repository.CourierSyncState
 import com.osrs.careerguild.domain.model.JobListing
 import com.osrs.careerguild.di.LocalAppContainer
@@ -118,6 +124,10 @@ enum class ApplicationStatus(val label: String, val color: Color) {
     IN_TRANSIT("In-Transit", Color(0xFF00E5FF)),
     SUBMITTED("Submitted", Color(0xFF4CAF50)),
     INTERVIEWING("Interviewing", Color(0xFFBA68C8)),
+    AWAITING_REVIEW("Awaiting Review", Color(0xFFFFA726)),
+    NEEDS_INPUT("Needs Input", Color(0xFFEF5350)),
+    FAILED("Failed", Color(0xFFE57373)),
+    UNCONFIRMED("Submit Unconfirmed", Color(0xFFFFB74D)),
 }
 
 /** instruction.md §5: Choose Room navigation modes */
@@ -135,6 +145,9 @@ data class QueuedApplication(
     val attachedPdf: String,
     var status: ApplicationStatus,
     val queuedTime: String = "Today",
+    val allowAutoSubmit: Boolean = false,
+    val forgeTaskId: String? = null,
+    val missingFields: List<String> = emptyList(),
 )
 
 /**
@@ -245,6 +258,187 @@ fun CourierGuildScreen(
                     applications[idx] = applications[idx].copy(status = newStatus)
                 }
             }
+        }
+    }
+
+    fun queueForForge(app: QueuedApplication) {
+        coroutineScope.launch {
+            // Task 4: Duplicate guard: never queue the same job_id twice while a task for it is open or submitted
+            val pendingTaskIds = appContainer.forgeOutbox.listPendingTaskIds()
+            val hasOpenTask = pendingTaskIds.any { it.contains(app.id) }
+            val isSubmittedOrOpen = app.status == ApplicationStatus.SUBMITTED ||
+                    app.status == ApplicationStatus.IN_TRANSIT ||
+                    app.status == ApplicationStatus.AWAITING_REVIEW
+
+            if (hasOpenTask || app.status == ApplicationStatus.SUBMITTED) {
+                val msg = "Duplicate Guard: Job ${app.company} (${app.title}) is already open or submitted."
+                appendConsoleLog("⚠ $msg")
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            // Check if TailoredResume exists for that job
+            val tailored = appContainer.tailoredResumeStore.getTailoredResume(app.id)
+            if (tailored == null) {
+                val reason = "Cannot queue for Forge: No TailoredResume exists for ${app.company}. Please tailor your resume in Scribe Tower first."
+                appendConsoleLog("❌ $reason")
+                Toast.makeText(context, reason, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+
+            // Verify with ResumeVerifier
+            val base = baseResume
+            if (base == null) {
+                val reason = "Cannot queue for Forge: Master Base Resume has not been loaded."
+                appendConsoleLog("❌ $reason")
+                Toast.makeText(context, reason, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            val repos = appContainer.gitHubRepoDao.getAll().map { it.toDomain() }
+            val verification = ResumeVerifier.verify(tailored, base, repos)
+            if (!verification.isValid) {
+                val violationList = verification.violations.joinToString("; ")
+                val reason = "Cannot queue for Forge: Resume verification failed: $violationList"
+                appendConsoleLog("❌ $reason")
+                Toast.makeText(context, reason, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+
+            // Generate PDF
+            val pdfForgeRes = ResumeForgePdfGenerator.forgeAtsResume(
+                context = context,
+                tailoredResume = tailored,
+                targetTitle = app.title,
+                targetCompany = app.company,
+            )
+            val pdfFile = pdfForgeRes.getOrNull()?.file
+            if (pdfFile == null || !pdfFile.exists()) {
+                val reason = "Cannot queue for Forge: PDF generation failed: ${pdfForgeRes.exceptionOrNull()?.message}"
+                appendConsoleLog("❌ $reason")
+                Toast.makeText(context, reason, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            // Build answers from applicant answers store
+            val storedAnswers = appContainer.applicantAnswerDao.getAll()
+            val answersList = storedAnswers.map { ForgeAnswer(questionPattern = it.questionPattern, answer = it.answer) }
+
+            // Dynamic fields from UserProfileManager
+            val profile = profileManager.profile.value
+            val nameParts = profile.name.trim().split(Regex("\\s+"), limit = 2)
+            val firstName = nameParts.getOrNull(0)?.ifBlank { null }
+            val lastName = nameParts.getOrNull(1)?.ifBlank { null }
+
+            val fields = ForgeTaskFields(
+                firstName = firstName,
+                lastName = lastName,
+                email = profile.email.ifBlank { null },
+                phone = profile.phone.ifBlank { null },
+                location = profile.location.ifBlank { null },
+                linkedinUrl = null,
+                githubUrl = if (profile.github.isNotBlank()) profile.github else null,
+                website = null,
+            )
+
+            val taskId = "forge_${app.id}_${System.currentTimeMillis()}"
+            val atsPlatform = CourierAgentConfig.detectAtsPlatform(app.atsUrl, app.platform).lowercase()
+
+            val forgeTask = ForgeTask(
+                schema = ForgeTask.SCHEMA_V1,
+                taskId = taskId,
+                jobId = app.id,
+                jobUrl = app.atsUrl,
+                ats = atsPlatform,
+                title = app.title,
+                company = app.company,
+                autoSubmitApproved = app.allowAutoSubmit,
+                resumePdf = "resume.pdf",
+                fields = fields,
+                answers = answersList,
+                tailoredResume = tailored,
+                createdAt = System.currentTimeMillis(),
+            )
+
+            appContainer.forgeOutbox.writeTask(forgeTask, pdfFile)
+
+            // Update app with forgeTaskId
+            val idx = applications.indexOfFirst { it.id == app.id }
+            if (idx != -1) {
+                applications[idx] = applications[idx].copy(
+                    forgeTaskId = taskId,
+                    status = ApplicationStatus.QUEUED,
+                )
+            }
+
+            appendConsoleLog("📦 Forge Outbox: Task $taskId written to outbox for ${app.company} (${app.title}). Auto-submit: ${app.allowAutoSubmit}")
+            Toast.makeText(context, "Queued for Forge: ${app.company}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun ingestForgeResults() {
+        coroutineScope.launch {
+            val pendingTaskIds = appContainer.forgeOutbox.listPendingTaskIds()
+            val currentAppTaskIds = applications.mapNotNull { it.forgeTaskId }.toSet()
+            val allKnown = pendingTaskIds + currentAppTaskIds + applications.map { it.id }.toSet()
+
+            val received = appContainer.forgeInbox.readResults(allKnown)
+            if (received.isEmpty()) return@launch
+
+            for (item in received) {
+                val res = item.result
+                val targetApp = applications.firstOrNull { it.forgeTaskId == res.taskId || it.id == res.taskId || res.taskId.contains(it.id) }
+                val targetJobId = targetApp?.id ?: res.taskId.removePrefix("forge_").substringBefore("_")
+
+                val newStatus = when (res.status) {
+                    ForgeResultStatus.FILLED_AWAITING_REVIEW -> ApplicationStatus.AWAITING_REVIEW
+                    ForgeResultStatus.NEEDS_INPUT -> ApplicationStatus.NEEDS_INPUT
+                    ForgeResultStatus.FAILED -> ApplicationStatus.FAILED
+                    ForgeResultStatus.SUBMIT_UNCONFIRMED -> ApplicationStatus.UNCONFIRMED
+                    ForgeResultStatus.SUBMITTED -> ApplicationStatus.SUBMITTED
+                }
+
+                val idx = applications.indexOfFirst { it.id == targetJobId }
+                if (idx != -1) {
+                    val updated = applications[idx].copy(
+                        status = newStatus,
+                        missingFields = res.missingFields,
+                        queuedTime = "Forge ${res.status.name.lowercase()}",
+                    )
+                    applications[idx] = updated
+                }
+
+                // Call MarkAppliedUseCase ONLY on submitted
+                if (res.status == ForgeResultStatus.SUBMITTED) {
+                    appContainer.markAppliedUseCase(targetJobId)
+                    appendConsoleLog("✅ [Forge] Application submitted and marked in vault for job '$targetJobId'. Confirmation: ${res.confirmationText ?: "OK"}")
+                } else if (res.status == ForgeResultStatus.NEEDS_INPUT) {
+                    appendConsoleLog("⚠️ [Forge] Missing fields for job '$targetJobId': ${res.missingFields.joinToString(", ")}")
+                } else {
+                    appendConsoleLog("ℹ️ [Forge] Result ingested for task ${res.taskId} -> ${newStatus.label}")
+                }
+
+                // Delete task folder and result file after ingesting
+                appContainer.forgeOutbox.deleteTaskFolder(res.taskId)
+                appContainer.forgeInbox.deleteResultFile(item.resultFile)
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        ingestForgeResults()
+    }
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                ingestForgeResults()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
@@ -577,6 +771,13 @@ fun CourierGuildScreen(
                             appendConsoleLog("🎉 Interview stage logged for ${app.company} (${app.title}).")
                         }
                     },
+                    onToggleAutoSubmit = { allow ->
+                        val idx = applications.indexOfFirst { it.id == app.id }
+                        if (idx != -1) {
+                            applications[idx] = applications[idx].copy(allowAutoSubmit = allow)
+                        }
+                    },
+                    onQueueForForge = { queueForForge(app) },
                 )
             }
 
@@ -936,6 +1137,8 @@ private fun ApplicationQueueCard(
     onViewPdf: () -> Unit,
     onDelete: () -> Unit = {},
     onAdvanceStatus: (ApplicationStatus) -> Unit = {},
+    onToggleAutoSubmit: (Boolean) -> Unit = {},
+    onQueueForForge: () -> Unit = {},
 ) {
     Card(
         shape = RoundedCornerShape(8.dp),
@@ -1054,6 +1257,64 @@ private fun ApplicationQueueCard(
                 }
             }
 
+            // Task 4: Missing fields alert banner
+            if (app.missingFields.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color(0xFF300E0E),
+                    border = BorderStroke(1.dp, Color(0xFFEF5350)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = "⚠ Missing fields: ${app.missingFields.joinToString(", ")}",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = Color(0xFFEF5350),
+                        modifier = Modifier.padding(6.dp),
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Task 3: Per-job "Allow auto-submit" toggle (OFF by default)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF22160E), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "Allow auto-submit (OFF by default):",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OsrsTextDim,
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { onToggleAutoSubmit(!app.allowAutoSubmit) },
+                ) {
+                    androidx.compose.material3.Switch(
+                        checked = app.allowAutoSubmit,
+                        onCheckedChange = { onToggleAutoSubmit(it) },
+                        modifier = Modifier.size(width = 36.dp, height = 24.dp),
+                        colors = androidx.compose.material3.SwitchDefaults.colors(
+                            checkedThumbColor = OsrsGold,
+                            checkedTrackColor = Color(0xFF3D2B1F),
+                            uncheckedThumbColor = OsrsTextDim,
+                            uncheckedTrackColor = Color(0xFF1A0F08),
+                        ),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (app.allowAutoSubmit) "ON" else "OFF",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = if (app.allowAutoSubmit) Color(0xFF81C784) else OsrsTextDim,
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(8.dp))
 
             // Action: Dispatch / Status Progression + Delete Action across all 4 Pipeline Tabs
@@ -1062,28 +1323,55 @@ private fun ApplicationQueueCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                OutlinedButton(
-                    onClick = onDelete,
-                    shape = RoundedCornerShape(6.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    border = BorderStroke(1.dp, Color(0xFFEF5350)),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = Color(0xFF2B1212),
-                        contentColor = Color(0xFFEF5350),
-                    ),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete Application",
-                        tint = Color(0xFFEF5350),
-                        modifier = Modifier.size(13.dp),
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Delete",
-                        color = Color(0xFFEF5350),
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(
+                        onClick = onDelete,
+                        shape = RoundedCornerShape(6.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        border = BorderStroke(1.dp, Color(0xFFEF5350)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color(0xFF2B1212),
+                            contentColor = Color(0xFFEF5350),
+                        ),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete Application",
+                            tint = Color(0xFFEF5350),
+                            modifier = Modifier.size(13.dp),
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Delete",
+                            color = Color(0xFFEF5350),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        )
+                    }
+
+                    // Task 3: "Queue for Forge" action
+                    OutlinedButton(
+                        onClick = onQueueForForge,
+                        shape = RoundedCornerShape(6.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        border = BorderStroke(1.dp, Color(0xFFFFA726)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color(0xFF2B1D14),
+                            contentColor = Color(0xFFFFA726),
+                        ),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Bolt,
+                            contentDescription = "Queue for Forge",
+                            tint = Color(0xFFFFA726),
+                            modifier = Modifier.size(13.dp),
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Queue for Forge",
+                            color = Color(0xFFFFA726),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        )
+                    }
                 }
 
                 when (app.status) {
@@ -1170,6 +1458,62 @@ private fun ApplicationQueueCard(
                                 text = "🎉 Interviewing Scheduled",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                 color = Color(0xFFCE93D8),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                    ApplicationStatus.AWAITING_REVIEW -> {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFF33200A),
+                            border = BorderStroke(1.dp, Color(0xFFFFA726)),
+                        ) {
+                            Text(
+                                text = "⏳ Awaiting Review",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFFFFA726),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                    ApplicationStatus.NEEDS_INPUT -> {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFF300E0E),
+                            border = BorderStroke(1.dp, Color(0xFFEF5350)),
+                        ) {
+                            Text(
+                                text = "⚠ Needs Input",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFFEF5350),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                    ApplicationStatus.FAILED -> {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFF2B1212),
+                            border = BorderStroke(1.dp, Color(0xFFE57373)),
+                        ) {
+                            Text(
+                                text = "✖ Submission Failed",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFFE57373),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                    ApplicationStatus.UNCONFIRMED -> {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFF30200A),
+                            border = BorderStroke(1.dp, Color(0xFFFFB74D)),
+                        ) {
+                            Text(
+                                text = "❓ Submit Unconfirmed",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFFFFB74D),
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             )
                         }
