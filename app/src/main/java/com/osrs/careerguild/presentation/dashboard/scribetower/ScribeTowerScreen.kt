@@ -378,6 +378,7 @@ fun ScribeTowerScreen(
                                     targetTitle = selectedJob.title,
                                     targetCompany = selectedJob.company,
                                 )
+                                appContainer.tailoredResumeStore.saveTailoredResume(selectedJob.id, currentTailored)
                                 android.util.Log.i("ScribeTower", "forgeAtsResume result: $res")
                                 res.onSuccess { pdf ->
                                     forgeResult = pdf
