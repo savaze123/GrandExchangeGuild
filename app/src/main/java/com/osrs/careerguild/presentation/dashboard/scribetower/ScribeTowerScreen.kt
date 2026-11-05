@@ -79,7 +79,9 @@ import com.osrs.careerguild.domain.resume.ResumeGapReport
 import com.osrs.careerguild.domain.resume.TailoredResume
 import com.osrs.careerguild.data.local.entity.toDomain
 import com.osrs.careerguild.presentation.common.InfoTooltipTrigger
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val OsrsGold       = Color(0xFFFFD700)
 private val OsrsStone      = Color(0xFF3D2B1F)
@@ -372,12 +374,14 @@ fun ScribeTowerScreen(
                                     )
                                 }
 
-                                val res = ResumeForgePdfGenerator.forgeAtsResume(
-                                    context = context,
-                                    tailoredResume = currentTailored,
-                                    targetTitle = selectedJob.title,
-                                    targetCompany = selectedJob.company,
-                                )
+                                val res = withContext(Dispatchers.IO) {
+                                    ResumeForgePdfGenerator.forgeAtsResume(
+                                        context = context,
+                                        tailoredResume = currentTailored,
+                                        targetTitle = selectedJob.title,
+                                        targetCompany = selectedJob.company,
+                                    )
+                                }
                                 appContainer.tailoredResumeStore.saveTailoredResume(selectedJob.id, currentTailored)
                                 android.util.Log.i("ScribeTower", "forgeAtsResume result: $res")
                                 res.onSuccess { pdf ->

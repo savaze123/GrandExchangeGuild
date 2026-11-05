@@ -107,7 +107,9 @@ import com.osrs.careerguild.domain.resume.TailoredResume
 import com.osrs.careerguild.presentation.common.InfoTooltipTrigger
 import com.osrs.careerguild.presentation.dashboard.scribetower.SharedAtsResumePreview
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -305,13 +307,15 @@ fun CourierGuildScreen(
                 return@launch
             }
 
-            // Generate PDF
-            val pdfForgeRes = ResumeForgePdfGenerator.forgeAtsResume(
-                context = context,
-                tailoredResume = tailored,
-                targetTitle = app.title,
-                targetCompany = app.company,
-            )
+            // Generate PDF on Dispatchers.IO to prevent main-thread disk I/O
+            val pdfForgeRes = withContext(Dispatchers.IO) {
+                ResumeForgePdfGenerator.forgeAtsResume(
+                    context = context,
+                    tailoredResume = tailored,
+                    targetTitle = app.title,
+                    targetCompany = app.company,
+                )
+            }
             val pdfFile = pdfForgeRes.getOrNull()?.file
             if (pdfFile == null || !pdfFile.exists()) {
                 val reason = "Cannot queue for Forge: PDF generation failed: ${pdfForgeRes.exceptionOrNull()?.message}"
