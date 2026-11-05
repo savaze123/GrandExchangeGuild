@@ -151,6 +151,7 @@ object ResumeForgePdfGenerator {
         userProfile: UserProfile,
     ): Float {
         val contentWidth = PAGE_WIDTH - (LEFT_MARGIN * 2)
+        val testPaint = Paint().apply { textSize = fontSize }
         var y = TOP_MARGIN
 
         // Header
@@ -175,7 +176,8 @@ object ResumeForgePdfGenerator {
             for (exp in resume.experience) {
                 y += 10f + 9f
                 for (b in exp.bullets) {
-                    y += estimateWrappedTextHeight("•  $b", contentWidth - 6f, fontSize, lineHeight = fontSize * 1.3f) + 2.5f
+                    val lines = wrapBullet(b, contentWidth - 14f) { testPaint.measureText(it) }
+                    y += maxOf(1, lines.size) * (fontSize * 1.3f) + 2.5f
                 }
                 y += 4f
             }
@@ -187,7 +189,8 @@ object ResumeForgePdfGenerator {
             for (proj in resume.projects) {
                 y += 9f + 8f
                 for (b in proj.bullets) {
-                    y += estimateWrappedTextHeight("•  $b", contentWidth - 6f, fontSize, lineHeight = fontSize * 1.3f) + 2f
+                    val lines = wrapBullet(b, contentWidth - 14f) { testPaint.measureText(it) }
+                    y += maxOf(1, lines.size) * (fontSize * 1.3f) + 2f
                 }
                 y += 4f
             }
@@ -339,7 +342,7 @@ object ResumeForgePdfGenerator {
                     }
                 }
                 for (b in exp.bullets) {
-                    y = drawWrappedText(canvas, "•  $b", LEFT_MARGIN + 6f, y, contentWidth - 6f, bodyPaint, bodyFontSize * 1.3f)
+                    y = drawBullet(canvas, b, LEFT_MARGIN + 4f, y, contentWidth - 4f, bodyPaint, bodyFontSize * 1.3f)
                     y += 2.5f
                 }
                 y += 3.5f
@@ -366,7 +369,7 @@ object ResumeForgePdfGenerator {
                     y += 8f
                 }
                 for (b in proj.bullets) {
-                    y = drawWrappedText(canvas, "•  $b", LEFT_MARGIN + 6f, y, contentWidth - 6f, bodyPaint, bodyFontSize * 1.3f)
+                    y = drawBullet(canvas, b, LEFT_MARGIN + 4f, y, contentWidth - 4f, bodyPaint, bodyFontSize * 1.3f)
                     y += 2.0f
                 }
                 y += 3.5f
@@ -468,6 +471,77 @@ object ResumeForgePdfGenerator {
         }
         if (currentLine.isNotEmpty()) {
             canvas.drawText(currentLine, x, currentY, paint)
+            currentY += lineHeight
+        }
+        return currentY
+    }
+
+    /**
+     * Pure wrapping logic for bullet points.
+     * Takes bullet text, maximum rendering width, and a measurement lambda.
+     * Guarantees each bullet wraps cleanly without breaking into separate bullets.
+     */
+    fun wrapBullet(
+        text: String,
+        maxWidth: Float,
+        measure: (String) -> Float,
+    ): List<String> {
+        val clean = text.trimStart { it in setOf('•', '-', '–', '—', '*', '·', '▪', '■', '▫', '◽', '◻', '□', '◦') }.trim()
+        if (clean.isEmpty()) return emptyList()
+        if (measure(clean) <= maxWidth) {
+            return listOf(clean)
+        }
+
+        val words = clean.split(Regex("\\s+")).filter { it.isNotBlank() }
+        val lines = mutableListOf<String>()
+        var currentLine = ""
+
+        for (word in words) {
+            val candidate = if (currentLine.isEmpty()) word else "$currentLine $word"
+            if (measure(candidate) <= maxWidth) {
+                currentLine = candidate
+            } else {
+                if (currentLine.isNotEmpty()) {
+                    lines.add(currentLine)
+                }
+                currentLine = word
+            }
+        }
+        if (currentLine.isNotEmpty()) {
+            lines.add(currentLine)
+        }
+        return if (lines.isEmpty()) listOf(clean) else lines
+    }
+
+    /**
+     * Draws a bullet item: exactly ONE bullet glyph on line 1, and continuation lines
+     * indented with a hanging indent and no glyph.
+     */
+    private fun drawBullet(
+        canvas: android.graphics.Canvas,
+        bulletText: String,
+        x: Float,
+        startY: Float,
+        maxWidth: Float,
+        paint: Paint,
+        lineHeight: Float = 12.0f,
+    ): Float {
+        val bulletGlyph = "•"
+        val bulletMargin = 10f
+        val textMaxWidth = maxWidth - bulletMargin
+
+        val lines = wrapBullet(bulletText, textMaxWidth) { paint.measureText(it) }
+        var currentY = startY
+
+        for ((index, line) in lines.withIndex()) {
+            if (index == 0) {
+                // Exactly ONE bullet glyph on the first line
+                canvas.drawText(bulletGlyph, x, currentY, paint)
+                canvas.drawText(line, x + bulletMargin, currentY, paint)
+            } else {
+                // Continuation lines indented without bullet glyph
+                canvas.drawText(line, x + bulletMargin, currentY, paint)
+            }
             currentY += lineHeight
         }
         return currentY
