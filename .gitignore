@@ -23,3 +23,7 @@ captures/
 Thumbs.db
 repomix-output.*
 *.log
+
+# Forge queue work directory
+forge_work/
+

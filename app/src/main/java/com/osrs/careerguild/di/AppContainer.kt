@@ -5,6 +5,8 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.osrs.careerguild.BuildConfig
 import com.osrs.careerguild.core.cli.CliDispatcher
 import com.osrs.careerguild.core.cli.CliParser
+import com.osrs.careerguild.core.forge.ForgeInbox
+import com.osrs.careerguild.core.forge.ForgeOutbox
 import com.osrs.careerguild.core.resume.BaseResumeRepository
 import com.osrs.careerguild.core.resume.BaseResumeRepositoryImpl
 import com.osrs.careerguild.core.resume.ResumeStructurer
@@ -79,6 +81,8 @@ class AppContainer(context: Context) {
     val resumeTextExtractor  = ResumeTextExtractor(appContext)
     val resumeStructurer     = ResumeStructurer(tokenGovernor)
     val resumeTailor         = com.osrs.careerguild.domain.resume.ResumeTailor(tokenGovernor)
+    val forgeOutbox          = ForgeOutbox(appContext)
+    val forgeInbox           = ForgeInbox(appContext)
 
     // ---------------------------------------------------------------------------
     // Remote / Scraper
