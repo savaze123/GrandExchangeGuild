@@ -2,7 +2,9 @@ package com.osrs.careerguild.core.github
 
 import com.osrs.careerguild.BuildConfig
 import com.osrs.careerguild.core.profile.UserProfileManager
+import com.osrs.careerguild.data.local.dao.GitHubRepoCacheDao
 import com.osrs.careerguild.data.local.dao.GitHubRepoDao
+import com.osrs.careerguild.data.local.entity.GitHubRepoCacheEntity
 import com.osrs.careerguild.data.local.entity.GitHubRepoEntity
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -62,10 +64,13 @@ class GitHubProfileFetcher(
     private val userProfileManager: UserProfileManager,
     private val gitHubRepoDao: GitHubRepoDao,
     private val json: Json = Json { ignoreUnknownKeys = true; isLenient = true },
+    private val gitHubRepoCacheDao: GitHubRepoCacheDao? = null,
 ) {
 
     companion object {
         private const val CACHE_TTL_MS = 6 * 60 * 60 * 1000L // 6 hours
+        const val TOP_REPOS_COUNT = 8
+        const val MAX_README_CHARS = 1500
     }
 
     suspend fun fetchRepos(forceRefresh: Boolean = false): List<GitHubRepo> = withContext(Dispatchers.IO) {
@@ -117,7 +122,7 @@ class GitHubProfileFetcher(
                 .filter { !it.fork && !it.archived }
                 .sortedByDescending { it.pushedAt ?: "" }
 
-            val topRepos = filteredDtos.take(6)
+            val topRepos = filteredDtos.take(TOP_REPOS_COUNT)
             val entities = filteredDtos.map { dto ->
                 val isTop = topRepos.any { it.id == dto.id }
                 val languages = if (isTop) {
@@ -147,6 +152,25 @@ class GitHubProfileFetcher(
             if (entities.isNotEmpty()) {
                 gitHubRepoDao.clear()
                 gitHubRepoDao.upsertAll(entities)
+                gitHubRepoCacheDao?.let { cacheDao ->
+                    val cacheEntities = entities.take(TOP_REPOS_COUNT).map { ent ->
+                        GitHubRepoCacheEntity(
+                            repoId = ent.id,
+                            username = username,
+                            name = ent.name,
+                            description = ent.description,
+                            htmlUrl = ent.htmlUrl,
+                            topics = ent.topics,
+                            languages = ent.languages,
+                            pushedAt = ent.pushedAt,
+                            readmeExcerpt = ent.readmeExcerpt,
+                            etag = ent.etag,
+                            cachedAt = ent.cachedAt,
+                        )
+                    }
+                    cacheDao.clear()
+                    cacheDao.upsertAll(cacheEntities)
+                }
             }
 
             entities.map { it.toDomain() }
@@ -178,13 +202,23 @@ class GitHubProfileFetcher(
 
     private suspend fun fetchReadmeExcerpt(user: String, repoName: String): String? {
         return runCatching {
-            val url = "https://raw.githubusercontent.com/$user/$repoName/HEAD/README.md"
-            val response = httpClient.get(url) {
+            val apiReadmeUrl = "https://api.github.com/repos/$user/$repoName/readme"
+            val apiRes = httpClient.get(apiReadmeUrl) {
+                header(HttpHeaders.Accept, "application/vnd.github.raw+json")
+                header(HttpHeaders.UserAgent, "CareerGuildApp/1.0 (Android)")
+                if (BuildConfig.GITHUB_TOKEN.isNotBlank()) {
+                    header(HttpHeaders.Authorization, "Bearer ${BuildConfig.GITHUB_TOKEN}")
+                }
+            }
+            if (apiRes.status == HttpStatusCode.OK) {
+                return@runCatching apiRes.body<String>().take(MAX_README_CHARS)
+            }
+            val rawUrl = "https://raw.githubusercontent.com/$user/$repoName/HEAD/README.md"
+            val response = httpClient.get(rawUrl) {
                 header(HttpHeaders.UserAgent, "CareerGuildApp/1.0 (Android)")
             }
             if (response.status == HttpStatusCode.OK) {
-                val body = response.body<String>()
-                body.take(1500)
+                response.body<String>().take(MAX_README_CHARS)
             } else null
         }.getOrNull()
     }
