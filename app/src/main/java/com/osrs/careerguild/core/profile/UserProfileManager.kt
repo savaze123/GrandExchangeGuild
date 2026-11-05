@@ -19,6 +19,10 @@ data class UserProfile(
     val github: String = "",
     val ssoPreferred: Boolean = false,
     val githubUsername: String = "",
+    val phone: String = "",
+    val gender: String = "Decline to self-identify",
+    val race: String = "Decline to self-identify",
+    val veteranStatus: String = "I decline to self-identify for protected veteran status",
 ) {
     val effectiveGithubUsername: String
         get() = if (githubUsername.isNotBlank()) {
@@ -54,6 +58,10 @@ class UserProfileManager private constructor(context: Context) {
             github = prefs.getString(KEY_GITHUB, "") ?: "",
             ssoPreferred = prefs.getBoolean(KEY_SSO_PREF, false),
             githubUsername = prefs.getString(KEY_GITHUB_USERNAME, "") ?: "",
+            phone = prefs.getString(KEY_PHONE, "") ?: "",
+            gender = prefs.getString(KEY_GENDER, "Decline to self-identify") ?: "Decline to self-identify",
+            race = prefs.getString(KEY_RACE, "Decline to self-identify") ?: "Decline to self-identify",
+            veteranStatus = prefs.getString(KEY_VETERAN_STATUS, "I decline to self-identify for protected veteran status") ?: "I decline to self-identify for protected veteran status",
         )
     }
 
@@ -65,6 +73,10 @@ class UserProfileManager private constructor(context: Context) {
             .putString(KEY_LOCATION, profile.location.trim())
             .putString(KEY_GITHUB, profile.github.trim())
             .putString(KEY_GITHUB_USERNAME, profile.githubUsername.trim())
+            .putString(KEY_PHONE, profile.phone.trim())
+            .putString(KEY_GENDER, profile.gender.trim())
+            .putString(KEY_RACE, profile.race.trim())
+            .putString(KEY_VETERAN_STATUS, profile.veteranStatus.trim())
             .putBoolean(KEY_SSO_PREF, profile.ssoPreferred)
             .apply()
         _profile.value = profile
@@ -77,6 +89,10 @@ class UserProfileManager private constructor(context: Context) {
         private const val KEY_LOCATION = "profile_location"
         private const val KEY_GITHUB = "profile_github"
         private const val KEY_GITHUB_USERNAME = "profile_github_username"
+        private const val KEY_PHONE = "profile_phone"
+        private const val KEY_GENDER = "profile_gender"
+        private const val KEY_RACE = "profile_race"
+        private const val KEY_VETERAN_STATUS = "profile_veteran_status"
         private const val KEY_SSO_PREF = "profile_sso_pref"
 
         @Volatile

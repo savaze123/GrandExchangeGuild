@@ -15,3 +15,6 @@
 
 # Safe CLI Engine - protect sealed command hierarchy from being stripped
 -keep class com.osrs.careerguild.core.cli.** { *; }
+
+# Avatar chase camera swaps ModelViewer.cameraManipulator via reflection
+-keepclassmembers class com.google.android.filament.utils.ModelViewer { private ** cameraManipulator; }

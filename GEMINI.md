@@ -29,6 +29,7 @@
 - core/pdf/ResumeForgePdfGenerator.kt: native 1-page PDF generator
 - core/token/TokenGovernor.kt: Gemini API budget guard
 - core/vision/AntiGravityScreenShareManager.kt: viewport telemetry
+- core/forge/ApplicantAnswerOptions.kt, core/forge/ApplicantAnswerPresets.kt: Forge Vault strict Enums and presets
 - core/cli/: CliCommand.kt, CliParser.kt, CliDispatcher.kt, CliResult.kt
 - data/local/CareerGuildDatabase.kt: SQLCipher Room DB (JobDao.kt, SkillDao.kt, BlockedCompanyDao.kt, CourierAccountDao.kt, CourierAccountEntity.kt, CourierTaskDao.kt, CourierTaskEntity.kt, GitHubRepoCacheDao.kt, GitHubRepoCacheEntity.kt, FieldMappingCacheDao.kt, FieldMappingCacheEntity.kt, ApplicantAnswerDao.kt, ApplicantAnswerEntity.kt)
 - data/remote/scraper/: JobFeedSource.kt, GeoFilter.kt, TechRadarScraperImpl.kt (large)

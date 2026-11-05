@@ -1,6 +1,7 @@
 package com.osrs.careerguild.presentation.dashboard.courierguild
 
 import android.annotation.SuppressLint
+import android.app.DatePickerDialog
 import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -9,9 +10,12 @@ import android.webkit.WebViewClient
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -34,6 +39,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,7 +60,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.DialogProperties
 import androidx.webkit.WebViewAssetLoader
+import com.osrs.careerguild.core.forge.ApplicantAnswerPresets
+import com.osrs.careerguild.core.forge.PresetInputType
 import com.osrs.careerguild.data.local.entity.CourierTaskEntity
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Calendar
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -74,6 +86,7 @@ private val TakeoverDim = Color(0xFF9E8A6A)
  *   to mark the task `SUBMITTED` automatically, and provides an explicit `"I submitted it"` button.
  * - Provides `"Resume Courier"`, `"Snooze"`, and `"Cancel"` actions.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun CourierTakeoverScreen(
@@ -178,10 +191,12 @@ fun CourierTakeoverScreen(
                             LazyColumn(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(max = 150.dp),
+                                    .heightIn(max = 180.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 items(blockedFields) { fieldLabel ->
+                                    val preset = remember(fieldLabel) { ApplicantAnswerPresets.findPreset(fieldLabel) }
+                                    val currentVal = fieldInputs[fieldLabel].orEmpty()
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -189,25 +204,155 @@ fun CourierTakeoverScreen(
                                             .padding(6.dp)
                                     ) {
                                         Text(
-                                            text = fieldLabel,
+                                            text = preset?.label ?: fieldLabel,
                                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                             color = Color.White,
                                         )
-                                        OutlinedTextField(
-                                            value = fieldInputs[fieldLabel].orEmpty(),
-                                            onValueChange = { fieldInputs[fieldLabel] = it },
-                                            placeholder = {
-                                                Text("Enter verified answer...", fontSize = 10.sp, color = TakeoverDim)
-                                            },
-                                            singleLine = true,
-                                            modifier = Modifier.fillMaxWidth(),
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedBorderColor = TakeoverGold,
-                                                unfocusedBorderColor = TakeoverBorder,
-                                                focusedTextColor = Color.White,
-                                                unfocusedTextColor = Color.White,
-                                            ),
-                                        )
+                                        when (val inputType = preset?.inputType) {
+                                            is PresetInputType.SingleChoice -> {
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                FlowRow(
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                ) {
+                                                    inputType.options.forEach { opt ->
+                                                        val isSelected = currentVal.equals(opt, ignoreCase = true)
+                                                        Surface(
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = if (isSelected) TakeoverGold else Color(0xFF1F1610),
+                                                            border = BorderStroke(
+                                                                1.dp,
+                                                                if (isSelected) TakeoverGold else TakeoverBorder,
+                                                            ),
+                                                            modifier = Modifier.clickable {
+                                                                fieldInputs[fieldLabel] = if (isSelected) "" else opt
+                                                            },
+                                                        ) {
+                                                            Row(
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                                                            ) {
+                                                                RadioButton(
+                                                                    selected = isSelected,
+                                                                    onClick = null,
+                                                                    colors = RadioButtonDefaults.colors(
+                                                                        selectedColor = Color.Black,
+                                                                        unselectedColor = TakeoverDim,
+                                                                    ),
+                                                                    modifier = Modifier.size(12.dp),
+                                                                )
+                                                                Spacer(modifier = Modifier.width(4.dp))
+                                                                Text(
+                                                                    text = opt,
+                                                                    style = MaterialTheme.typography.labelSmall.copy(
+                                                                        fontSize = 10.sp,
+                                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                                    ),
+                                                                    color = if (isSelected) Color.Black else Color.White,
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            is PresetInputType.StartDate -> {
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                val isCustomDate = currentVal.isNotBlank() && inputType.quickOptions.none { it.equals(currentVal, ignoreCase = true) }
+                                                FlowRow(
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                ) {
+                                                    inputType.quickOptions.forEach { opt ->
+                                                        val isSelected = currentVal.equals(opt, ignoreCase = true)
+                                                        Surface(
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = if (isSelected) TakeoverGold else Color(0xFF1F1610),
+                                                            border = BorderStroke(
+                                                                1.dp,
+                                                                if (isSelected) TakeoverGold else TakeoverBorder,
+                                                            ),
+                                                            modifier = Modifier.clickable {
+                                                                fieldInputs[fieldLabel] = if (isSelected) "" else opt
+                                                            },
+                                                        ) {
+                                                            Row(
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                                                            ) {
+                                                                RadioButton(
+                                                                    selected = isSelected,
+                                                                    onClick = null,
+                                                                    colors = RadioButtonDefaults.colors(
+                                                                        selectedColor = Color.Black,
+                                                                        unselectedColor = TakeoverDim,
+                                                                    ),
+                                                                    modifier = Modifier.size(12.dp),
+                                                                )
+                                                                Spacer(modifier = Modifier.width(4.dp))
+                                                                Text(
+                                                                    text = opt,
+                                                                    style = MaterialTheme.typography.labelSmall.copy(
+                                                                        fontSize = 10.sp,
+                                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                                    ),
+                                                                    color = if (isSelected) Color.Black else Color.White,
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = if (isCustomDate) Color(0xFF00E5FF) else Color(0xFF10262E),
+                                                        border = BorderStroke(
+                                                            1.dp,
+                                                            if (isCustomDate) Color(0xFF00E5FF) else Color(0xFF0A4452),
+                                                        ),
+                                                        modifier = Modifier.clickable {
+                                                            val cal = Calendar.getInstance()
+                                                            DatePickerDialog(
+                                                                context,
+                                                                { _, y, m, d ->
+                                                                    val chosen = LocalDate.of(y, m + 1, d)
+                                                                    fieldInputs[fieldLabel] = chosen.format(DateTimeFormatter.ISO_LOCAL_DATE)
+                                                                },
+                                                                cal.get(Calendar.YEAR),
+                                                                cal.get(Calendar.MONTH),
+                                                                cal.get(Calendar.DAY_OF_MONTH),
+                                                            ).show()
+                                                        },
+                                                    ) {
+                                                        Text(
+                                                            text = if (isCustomDate) "📅 $currentVal" else "📅 Pick Date...",
+                                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                                fontSize = 10.sp,
+                                                                fontWeight = if (isCustomDate) FontWeight.Bold else FontWeight.Normal,
+                                                            ),
+                                                            color = if (isCustomDate) Color.Black else Color(0xFF00E5FF),
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            else -> {
+                                                OutlinedTextField(
+                                                    value = currentVal,
+                                                    onValueChange = { fieldInputs[fieldLabel] = it },
+                                                    placeholder = {
+                                                        Text("Enter verified answer...", fontSize = 10.sp, color = TakeoverDim)
+                                                    },
+                                                    singleLine = true,
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    colors = OutlinedTextFieldDefaults.colors(
+                                                        focusedBorderColor = TakeoverGold,
+                                                        unfocusedBorderColor = TakeoverBorder,
+                                                        focusedTextColor = Color.White,
+                                                        unfocusedTextColor = Color.White,
+                                                    ),
+                                                )
+                                            }
+                                        }
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {

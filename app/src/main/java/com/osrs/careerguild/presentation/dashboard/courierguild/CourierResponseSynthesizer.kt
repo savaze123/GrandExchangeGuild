@@ -16,7 +16,13 @@ object CourierResponseSynthesizer {
 
     // instruction.md §8: Applicant Profile & EEO Configuration Literals
     const val DEFAULT_GENDER = "Decline to self-identify"
-    val ALLOWED_GENDER = listOf("Male", "Female", "Decline to self-identify")
+    val ALLOWED_GENDER = listOf(
+        "Male",
+        "Female",
+        "Non-binary",
+        "Prefer not to say",
+        "Decline to self-identify",
+    )
 
     const val DEFAULT_RACE = "Decline to self-identify"
     val ALLOWED_RACE = listOf(
@@ -32,6 +38,9 @@ object CourierResponseSynthesizer {
 
     const val DEFAULT_VETERAN_STATUS = "I decline to self-identify for protected veteran status"
     val ALLOWED_VETERAN_STATUS = listOf(
+        "Veteran",
+        "Not a veteran",
+        "Prefer not to say",
         "I identify as a veteran",
         "I am not a protected veteran",
         "I decline to self-identify for protected veteran status",
@@ -39,7 +48,17 @@ object CourierResponseSynthesizer {
 
     fun normalizeGender(raw: String): String {
         val trimmed = raw.trim()
-        return ALLOWED_GENDER.firstOrNull { it.equals(trimmed, ignoreCase = true) } ?: DEFAULT_GENDER
+        val exact = ALLOWED_GENDER.firstOrNull { it.equals(trimmed, ignoreCase = true) }
+        if (exact != null) return exact
+        val lower = trimmed.lowercase()
+        return when {
+            lower.contains("non-binary") || lower.contains("nonbinary") -> "Non-binary"
+            lower.contains("female") || lower.contains("woman") -> "Female"
+            lower.contains("male") || lower.contains("man") -> "Male"
+            lower.contains("prefer not") -> "Prefer not to say"
+            lower.contains("decline") || lower.contains("not wish") || lower.contains("not disclose") -> DEFAULT_GENDER
+            else -> DEFAULT_GENDER
+        }
     }
 
     fun normalizeRace(raw: String): String {
@@ -49,7 +68,17 @@ object CourierResponseSynthesizer {
 
     fun normalizeVeteranStatus(raw: String): String {
         val trimmed = raw.trim()
-        return ALLOWED_VETERAN_STATUS.firstOrNull { it.equals(trimmed, ignoreCase = true) } ?: DEFAULT_VETERAN_STATUS
+        val exact = ALLOWED_VETERAN_STATUS.firstOrNull { it.equals(trimmed, ignoreCase = true) }
+        if (exact != null) return exact
+        val lower = trimmed.lowercase()
+        return when {
+            lower.contains("not a veteran") || lower.contains("not a protected") || lower.contains("am not") -> "Not a veteran"
+            lower.contains("identify as a veteran") -> "I identify as a veteran"
+            lower.contains("veteran") -> "Veteran"
+            lower.contains("prefer not") -> "Prefer not to say"
+            lower.contains("decline") || lower.contains("not wish") || lower.contains("not disclose") -> DEFAULT_VETERAN_STATUS
+            else -> DEFAULT_VETERAN_STATUS
+        }
     }
 
     enum class QuestionKind {

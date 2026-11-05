@@ -414,14 +414,151 @@ class MultiNodeGLBBuilder:
         ]:
             self.add_cone(mat_core, dx * radius * 0.6, dy * radius * 0.6, dz * radius * 0.6, 0.22 * radius, 0.7 * radius, segments=4)
 
+    # Armature rest pivots (world space) and hierarchy: Hips -> LegL, LegR, ArmL, ArmR
+    AVATAR_BONES = [
+        # name, parent index (-1 = rig root), world rest pivot
+        ("Hips", -1, (0.00, 0.72, 0.0)),
+        ("LegL", 0, (-0.11, 0.70, 0.0)),
+        ("LegR", 0, (0.11, 0.70, 0.0)),
+        ("ArmL", 0, (-0.30, 1.26, 0.0)),
+        ("ArmR", 0, (0.30, 1.26, 0.0)),
+    ]
+    WALK_DURATION = 0.8   # seconds per full gait cycle (two steps)
+    WALK_LEG_SWING = math.radians(35.0)
+    WALK_ARM_SWING = math.radians(30.0)
+    WALK_BOB = 0.03
+
+    def _emit_avatar_rig(self, bin_data, buffer_views, accessors, meshes, nodes, skins, animations):
+        def add_accessor(raw, comp, count, typ, target=None, minmax=None):
+            raw = bytearray(raw)
+            while len(raw) % 4 != 0:
+                raw.extend(b'\x00')
+            bv = {"buffer": 0, "byteOffset": len(bin_data), "byteLength": len(raw)}
+            if target:
+                bv["target"] = target
+            bin_data.extend(raw)
+            buffer_views.append(bv)
+            acc = {"bufferView": len(buffer_views) - 1, "byteOffset": 0,
+                   "componentType": comp, "count": count, "type": typ}
+            if minmax:
+                acc["min"], acc["max"] = minmax
+            accessors.append(acc)
+            return len(accessors) - 1
+
+        bones = self.AVATAR_BONES
+        # --- skinned mesh: one primitive per (bone, material), rigid weights ---
+        prims = []
+        for bone_idx, (bname, _p, _w) in enumerate(bones):
+            groups = {}
+            for mat_idx, pos, norm, ind in self.nodes.get("Avatar__" + bname, []):
+                g = groups.setdefault(mat_idx, ([], [], []))
+                off = len(g[0])
+                g[0].extend(pos); g[1].extend(norm); g[2].extend(i + off for i in ind)
+            for mat_idx, (pl, nl, il) in groups.items():
+                pb = b"".join(struct.pack('<fff', *v) for v in pl)
+                nb = b"".join(struct.pack('<fff', *v) for v in nl)
+                ib = b"".join(struct.pack('<H', i) for i in il)
+                jb = struct.pack('<BBBB', bone_idx, 0, 0, 0) * len(pl)
+                wb = struct.pack('<ffff', 1.0, 0.0, 0.0, 0.0) * len(pl)
+                mn = [min(v[k] for v in pl) for k in range(3)]
+                mx = [max(v[k] for v in pl) for k in range(3)]
+                prims.append({
+                    "attributes": {
+                        "POSITION": add_accessor(pb, 5126, len(pl), "VEC3", 34962, (mn, mx)),
+                        "NORMAL": add_accessor(nb, 5126, len(nl), "VEC3", 34962),
+                        "JOINTS_0": add_accessor(jb, 5121, len(pl), "VEC4", 34962),
+                        "WEIGHTS_0": add_accessor(wb, 5126, len(pl), "VEC4", 34962),
+                    },
+                    "indices": add_accessor(ib, 5123, len(il), "SCALAR", 34963, ([min(il)], [max(il)])),
+                    "material": mat_idx,
+                })
+        mesh_idx = len(meshes)
+        meshes.append({"name": "Mesh_Avatar", "primitives": prims})
+
+        # --- node hierarchy ---
+        avatar_root = len(nodes)            # "Avatar": game-controlled transform
+        mesh_node = avatar_root + 1         # skinned mesh node (identity under Avatar)
+        idle_dummy = avatar_root + 2        # target of the no-op Idle clip (see below)
+        joint_base = avatar_root + 3
+        joint_nodes = [joint_base + i for i in range(len(bones))]
+        nodes[0]["children"].append(avatar_root)
+        nodes.append({"name": "Avatar", "children": [mesh_node, idle_dummy, joint_nodes[0]]})
+        nodes.append({"name": "AvatarMesh", "mesh": mesh_idx, "skin": 0})
+        nodes.append({"name": "AvatarIdleDummy"})
+        for i, (bname, parent, wp) in enumerate(bones):
+            pw = bones[parent][2] if parent >= 0 else (0.0, 0.0, 0.0)
+            node = {"name": bname, "translation": [wp[0] - pw[0], wp[1] - pw[1], wp[2] - pw[2]]}
+            kids = [joint_nodes[j] for j, b in enumerate(bones) if b[1] == i]
+            if kids:
+                node["children"] = kids
+            nodes.append(node)
+
+        # --- skin (inverse bind = translate(-rest pivot)) ---
+        ibm = bytearray()
+        for _n, _p, wp in bones:
+            ibm.extend(struct.pack('<16f', 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -wp[0], -wp[1], -wp[2], 1))
+        skins.append({
+            "name": "AvatarArmature",
+            "joints": joint_nodes,
+            "skeleton": joint_nodes[0],
+            "inverseBindMatrices": add_accessor(ibm, 5126, len(bones), "MAT4"),
+        })
+
+        # --- animations ---
+        # Animation 0 "Idle" only animates a dummy node. Filament's ModelViewer auto-plays
+        # animation index 0 every frame; keeping it inert lets the app drive "Walk" (index 1)
+        # itself and hold the rest pose when the joystick is idle.
+        def time_acc(times):
+            return add_accessor(struct.pack('<%df' % len(times), *times), 5126, len(times), "SCALAR",
+                                None, ([min(times)], [max(times)]))
+
+        def quat_x(angle):
+            return (math.sin(angle / 2.0), 0.0, 0.0, math.cos(angle / 2.0))
+
+        t_idle = time_acc([0.0, 1.0])
+        idle_out = add_accessor(struct.pack('<8f', 0, 0, 0, 1, 0, 0, 0, 1), 5126, 2, "VEC4")
+        animations.append({
+            "name": "Idle",
+            "samplers": [{"input": t_idle, "output": idle_out, "interpolation": "LINEAR"}],
+            "channels": [{"sampler": 0, "target": {"node": idle_dummy, "path": "rotation"}}],
+        })
+
+        d = self.WALK_DURATION
+        times = [0.0, d * 0.25, d * 0.5, d * 0.75, d]
+        ls, as_ = self.WALK_LEG_SWING, self.WALK_ARM_SWING
+        # Forward swing = negative rotation about +X (feet hang along -Y, character faces +Z).
+        left_leg = [0.0, -ls, 0.0, ls, 0.0]
+        right_leg = [0.0, ls, 0.0, -ls, 0.0]
+        left_arm = [-v / ls * as_ for v in left_leg]    # arms counter-swing their opposite leg
+        right_arm = [-v / ls * as_ for v in right_leg]
+        hips_rest = bones[0][2]
+        bob = [0.0, self.WALK_BOB, 0.0, self.WALK_BOB, 0.0]
+        hips_t = [(hips_rest[0], hips_rest[1] + v, hips_rest[2]) for v in bob]
+
+        t_acc = time_acc(times)
+        samplers, channels = [], []
+        def add_rot(joint, angles):
+            raw = b"".join(struct.pack('<4f', *quat_x(a)) for a in angles)
+            samplers.append({"input": t_acc, "output": add_accessor(raw, 5126, len(angles), "VEC4"), "interpolation": "LINEAR"})
+            channels.append({"sampler": len(samplers) - 1, "target": {"node": joint, "path": "rotation"}})
+        add_rot(joint_nodes[1], left_leg)
+        add_rot(joint_nodes[2], right_leg)
+        add_rot(joint_nodes[3], left_arm)
+        add_rot(joint_nodes[4], right_arm)
+        raw = b"".join(struct.pack('<3f', *v) for v in hips_t)
+        samplers.append({"input": t_acc, "output": add_accessor(raw, 5126, len(hips_t), "VEC3"), "interpolation": "LINEAR"})
+        channels.append({"sampler": len(samplers) - 1, "target": {"node": joint_nodes[0], "path": "translation"}})
+        animations.append({"name": "Walk", "samplers": samplers, "channels": channels})
+
     def build_glb(self):
         bin_data = bytearray()
         buffer_views = []
         accessors = []
         meshes = []
-        nodes = [{"name": "Root", "children": list(range(1, len(self.node_order) + 1))}]
+        regular_names = [n for n in self.node_order if not n.startswith("Avatar__")]
+        nodes = [{"name": "Root", "children": list(range(1, len(regular_names) + 1))}]
 
-        for node_idx, node_name in enumerate(self.node_order, start=1):
+        for node_idx, node_name in enumerate(regular_names, start=1):
             prims_for_node = self.nodes[node_name]
             mat_groups = {}
             for mat_idx, pos, norm, ind in prims_for_node:
@@ -543,6 +680,11 @@ class MultiNodeGLBBuilder:
                 "name": node_name
             })
 
+        skins = []
+        animations = []
+        if any(n.startswith("Avatar__") for n in self.node_order):
+            self._emit_avatar_rig(bin_data, buffer_views, accessors, meshes, nodes, skins, animations)
+
         gltf = {
             "asset": {"version": "2.0", "generator": "PoposLookout_OSRS_Guild_3D"},
             "scene": 0,
@@ -554,6 +696,10 @@ class MultiNodeGLBBuilder:
             "bufferViews": buffer_views,
             "accessors": accessors
         }
+        if skins:
+            gltf["skins"] = skins
+        if animations:
+            gltf["animations"] = animations
 
         json_bytes = json.dumps(gltf, separators=(',', ':')).encode('utf-8')
         while len(json_bytes) % 4 != 0:
@@ -807,6 +953,7 @@ def generate():
     # -------------------------------------------------------------
     # 5. [NORTH-WEST] BOUNTY BOARD (LIVE JOB RADAR GUILDHALL)
     # -------------------------------------------------------------
+    b.set_node("BountyBoard")
     bx, bz = -7.2, -7.2
     b.add_box(m_stone_dark, bx, 0.25, bz, 5.8, 0.45, 5.8)
     b.add_box(m_stone,      bx, 0.52, bz, 5.2, 0.22, 5.2)
@@ -837,6 +984,7 @@ def generate():
     # -------------------------------------------------------------
     # 6. [NORTH-EAST] SCRIBE TOWER (ATS RESUME & COVER LETTER FORGE)
     # -------------------------------------------------------------
+    b.set_node("ScribeTower")
     sx, sz = 7.2, -7.2
     b.add_cylinder(m_stone_dark, sx, 0.35, sz, 3.5, 0.65, segments=12)
     b.add_cylinder(m_stone,      sx, 1.45, sz, 2.9, 1.80, segments=12)
@@ -862,6 +1010,7 @@ def generate():
     # -------------------------------------------------------------
     # 7. [SOUTH-WEST] SKILL ALTAR (DYNAMIC SKILL MATRIX & TECH RADAR)
     # -------------------------------------------------------------
+    b.set_node("SkillAltar")
     ax, az = -7.2, 7.2
     b.add_box(m_stone_dark, ax, 0.25, az, 6.0, 0.45, 6.0)
     b.add_box(m_stone,      ax, 0.55, az, 4.8, 0.30, 4.8)
@@ -896,6 +1045,7 @@ def generate():
     # -------------------------------------------------------------
     # 8. [SOUTH-EAST] COURIER GUILD (AUTO-APPLY & DISPATCH DEPOT)
     # -------------------------------------------------------------
+    b.set_node("CourierGuild")
     cx, cz = 7.2, 7.2
     b.add_box(m_stone_dark, cx, 0.25, cz, 5.5, 0.45, 5.5)
     b.add_box(m_wood_plank, cx, 1.90, cz, 4.4, 2.80, 4.0)
@@ -925,6 +1075,7 @@ def generate():
     # -------------------------------------------------------------
     # 9. 8 LOOKOUT TOWERS (EXACTLY 2 AT EACH OUTER EDGE SEGMENT)
     # -------------------------------------------------------------
+    b.set_node("LookoutScenery")
     namek_tower_locs = [
         (-14.0, -4.5), (-14.0, 4.5),  # West outer edge segment (2)
         ( 14.0, -4.5), ( 14.0, 4.5),  # East outer edge segment (2)
@@ -1012,6 +1163,29 @@ def generate():
     # =============================================================
     # NODE 2: SaiyanGoku (Super Saiyan 3 Goku in Turtle School Gi)
     # =============================================================
+    # =============================================================
+    # NODE 1b: Avatar (player-controlled adventurer, skinned + animated)
+    # Origin at feet, faces local +Z. Parts are grouped per bone; build_glb()
+    # emits them as one skinned mesh with a 5-joint armature and Idle/Walk clips.
+    # Pivots (rest pose): Hips y=0.72, hip joints y=0.70, shoulders y=1.26.
+    # =============================================================
+    b.set_node("Avatar__Hips")
+    b.add_box(m_awning_blue,  0.00, 1.00, 0.00, 0.46, 0.60, 0.26) # Tunic torso
+    b.add_box(m_gold,         0.00, 0.74, 0.00, 0.48, 0.07, 0.28) # Belt
+    b.add_box(m_skin,         0.00, 1.45, 0.00, 0.28, 0.28, 0.28) # Head
+    b.add_box(m_hair_black,   0.00, 1.62, -0.02, 0.30, 0.10, 0.30) # Hair top
+    b.add_box(m_cyan_rune,    0.00, 1.47, 0.15, 0.20, 0.04, 0.02) # Visor / face-front marker
+    b.set_node("Avatar__LegL")
+    b.add_box(m_stone_dark,  -0.11, 0.35, 0.00, 0.17, 0.70, 0.20) # Left leg
+    b.add_box(m_wood_plank,  -0.11, 0.06, 0.05, 0.19, 0.12, 0.30) # Left boot
+    b.set_node("Avatar__LegR")
+    b.add_box(m_stone_dark,   0.11, 0.35, 0.00, 0.17, 0.70, 0.20) # Right leg
+    b.add_box(m_wood_plank,   0.11, 0.06, 0.05, 0.19, 0.12, 0.30) # Right boot
+    b.set_node("Avatar__ArmL")
+    b.add_box(m_awning_blue, -0.30, 1.00, 0.00, 0.13, 0.52, 0.16) # Left arm
+    b.set_node("Avatar__ArmR")
+    b.add_box(m_awning_blue,  0.30, 1.00, 0.00, 0.13, 0.52, 0.16) # Right arm
+
     b.set_node("SaiyanGoku")
     # Torso (Orange Gi + Dark Blue Undershirt)
     b.add_box(m_turtle_gi, 0.0, 0.0, 0.0, 0.42, 0.60, 0.28)
