@@ -1,11 +1,13 @@
 package com.osrs.careerguild.domain.resume
 
 import com.osrs.careerguild.core.resume.BaseResume
+import com.osrs.careerguild.core.resume.CategorizedSkill
 import com.osrs.careerguild.core.resume.ResumeCertification
 import com.osrs.careerguild.core.resume.ResumeContact
 import com.osrs.careerguild.core.resume.ResumeEducation
 import com.osrs.careerguild.core.resume.ResumeExperience
 import com.osrs.careerguild.core.resume.ResumeProject
+import com.osrs.careerguild.core.resume.SkillCategorizer
 import kotlinx.serialization.Serializable
 
 /**
@@ -17,6 +19,7 @@ data class TailoredResume(
     val contact: ResumeContact = ResumeContact(),
     val summary: String = "",
     val skills: List<String> = emptyList(),
+    val categorizedSkills: List<CategorizedSkill> = emptyList(),
     val experience: List<ResumeExperience> = emptyList(),
     val projects: List<ResumeProject> = emptyList(),
     val education: List<ResumeEducation> = emptyList(),
@@ -24,6 +27,21 @@ data class TailoredResume(
     val isTailored: Boolean = true,
     val fallbackReason: String? = null,
 ) {
+    fun getCategorizedSkills(jdKeywords: List<String> = emptyList()): Map<String, List<String>> {
+        if (categorizedSkills.isNotEmpty()) {
+            val grouped = categorizedSkills.groupBy { it.category }
+                .mapValues { (_, list) -> list.map { it.name } }
+            val ordered = linkedMapOf<String, List<String>>()
+            for (cat in SkillCategorizer.ORDERED_CATEGORIES) {
+                grouped[cat]?.let { if (it.isNotEmpty()) ordered[cat] = it }
+            }
+            for ((cat, list) in grouped) {
+                if (cat !in ordered && list.isNotEmpty()) ordered[cat] = list
+            }
+            return ordered
+        }
+        return SkillCategorizer.categorize(skills, jdKeywords)
+    }
     companion object {
         private val trailingMonthRegex = Regex(
             """^(.*?)(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)$"""
@@ -68,6 +86,7 @@ data class TailoredResume(
                 contact = activeBase.contact,
                 summary = activeBase.summary ?: "",
                 skills = activeBase.skills,
+                categorizedSkills = activeBase.categorizedSkills,
                 experience = activeBase.experience.filter { it.isActive }.map { sanitizeExperience(it) },
                 projects = activeBase.projects.filter { it.isActive },
                 education = activeBase.education.filter { it.isActive },

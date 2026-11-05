@@ -15,6 +15,7 @@ data class BaseResume(
     val certifications: List<ResumeCertification> = emptyList(),
     val projects: List<ResumeProject> = emptyList(),
     val skills: List<String> = emptyList(),
+    val categorizedSkills: List<CategorizedSkill> = emptyList(),
 ) {
     /**
      * Returns a copy of this [BaseResume] containing only active (`isActive == true`)
@@ -26,7 +27,29 @@ data class BaseResume(
         certifications = certifications.filter { it.isActive },
         projects = projects.filter { it.isActive },
     )
+
+    fun getCategorizedSkills(jdKeywords: List<String> = emptyList()): Map<String, List<String>> {
+        if (categorizedSkills.isNotEmpty()) {
+            val grouped = categorizedSkills.groupBy { it.category }
+                .mapValues { (_, list) -> list.map { it.name } }
+            val ordered = linkedMapOf<String, List<String>>()
+            for (cat in SkillCategorizer.ORDERED_CATEGORIES) {
+                grouped[cat]?.let { if (it.isNotEmpty()) ordered[cat] = it }
+            }
+            for ((cat, list) in grouped) {
+                if (cat !in ordered && list.isNotEmpty()) ordered[cat] = list
+            }
+            return ordered
+        }
+        return SkillCategorizer.categorize(skills, jdKeywords)
+    }
 }
+
+@Serializable
+data class CategorizedSkill(
+    val name: String,
+    val category: String,
+)
 
 @Serializable
 data class ResumeContact(

@@ -135,11 +135,16 @@ fun SharedAtsResumePreview(
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                     color = Color.Black,
                 )
-                Text(
-                    text = "• Competencies: " + resume.skills.joinToString("  •  "),
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Medium),
-                    color = Color(0xFF0F3A22),
-                )
+                val catMap = resume.getCategorizedSkills()
+                for ((category, skills) in catMap) {
+                    if (skills.isNotEmpty()) {
+                        Text(
+                            text = "$category: ${skills.joinToString(", ")}",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Medium),
+                            color = Color(0xFF0F3A22),
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(2.dp))
             }
 

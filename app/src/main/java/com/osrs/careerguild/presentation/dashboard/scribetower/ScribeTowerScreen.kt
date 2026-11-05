@@ -71,6 +71,7 @@ import com.osrs.careerguild.core.pdf.ResumeForgePdfGenerator
 import com.osrs.careerguild.core.profile.UserProfile
 import com.osrs.careerguild.core.profile.UserProfileManager
 import com.osrs.careerguild.core.resume.BaseResume
+import com.osrs.careerguild.core.resume.SkillCategorizer
 import com.osrs.careerguild.di.LocalAppContainer
 import com.osrs.careerguild.domain.model.GuildBuilding
 import com.osrs.careerguild.domain.model.JobListing
@@ -925,11 +926,16 @@ private fun AtsParchmentPreview(
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                 color = Color.Black,
             )
-            Text(
-                text = "• Tailored Stack: " + infusedSkills.joinToString("  •  "),
-                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                color = Color(0xFF0F3A22),
-            )
+            val catMap = SkillCategorizer.categorize(infusedSkills)
+            for ((category, skills) in catMap) {
+                if (skills.isNotEmpty()) {
+                    Text(
+                        text = "$category: ${skills.joinToString(", ")}",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                        color = Color(0xFF0F3A22),
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(2.dp))
             Text(

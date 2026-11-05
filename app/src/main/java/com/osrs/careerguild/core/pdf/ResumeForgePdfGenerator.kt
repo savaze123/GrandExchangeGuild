@@ -166,8 +166,14 @@ object ResumeForgePdfGenerator {
         // Skills
         if (resume.skills.isNotEmpty()) {
             y += 11f
-            val skillsLine = "• Technical Skills: ${resume.skills.joinToString("  •  ")}"
-            y += estimateWrappedTextHeight(skillsLine, contentWidth, fontSize, lineHeight = fontSize * 1.3f) + 8f
+            val catMap = resume.getCategorizedSkills()
+            for ((category, skills) in catMap) {
+                if (skills.isNotEmpty()) {
+                    val line = "$category: ${skills.joinToString(", ")}"
+                    y += estimateWrappedTextHeight(line, contentWidth - 4f, fontSize, lineHeight = fontSize * 1.3f) + 2f
+                }
+            }
+            y += 4f
         }
 
         // Experience
@@ -309,9 +315,15 @@ object ResumeForgePdfGenerator {
         if (resume.skills.isNotEmpty()) {
             canvas.drawText("TECHNICAL SKILLS", LEFT_MARGIN, y, sectionPaint)
             y += 11f
-            val skillsLine = "• Competencies: " + resume.skills.joinToString("  •  ")
-            y = drawWrappedText(canvas, skillsLine, LEFT_MARGIN, y, contentWidth, boldBodyPaint, bodyFontSize * 1.3f)
-            y += 8f
+            val catMap = resume.getCategorizedSkills()
+            for ((category, skills) in catMap) {
+                if (skills.isNotEmpty()) {
+                    val line = "$category: ${skills.joinToString(", ")}"
+                    y = drawWrappedText(canvas, line, LEFT_MARGIN + 4f, y, contentWidth - 4f, boldBodyPaint, bodyFontSize * 1.3f)
+                    y += 2f
+                }
+            }
+            y += 4f
         }
 
         // 4. Professional Experience
