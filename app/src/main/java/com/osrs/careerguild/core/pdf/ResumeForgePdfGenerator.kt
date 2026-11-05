@@ -279,27 +279,32 @@ object ResumeForgePdfGenerator {
         val contentWidth = PAGE_WIDTH - (LEFT_MARGIN * 2)
         var y = TOP_MARGIN
 
-        // 1. Header
-        val candidateName = resume.contact.name?.takeIf { it.isNotBlank() }
-            ?: userProfile.name.ifBlank { "Candidate Name" }
-        canvas.drawText(candidateName, LEFT_MARGIN, y, titlePaint)
-        y += 16f
+        // 1. Header — strictly sourced from UserProfileManager + BaseResume contact without placeholder strings
+        val candidateName = userProfile.name.takeIf { it.isNotBlank() }
+            ?: resume.contact.name?.takeIf { it.isNotBlank() }
+            ?: ""
+        if (candidateName.isNotBlank()) {
+            canvas.drawText(candidateName, LEFT_MARGIN, y, titlePaint)
+            y += 16f
+        }
         canvas.drawText("Target: $targetTitle  |  $targetCompany", LEFT_MARGIN, y, boldBodyPaint)
         y += 12f
 
         val contactParts = mutableListOf<String>()
-        val loc = resume.contact.location ?: userProfile.location
+        val loc = userProfile.location.takeIf { it.isNotBlank() } ?: resume.contact.location.orEmpty()
         if (loc.isNotBlank()) contactParts.add(loc)
-        val gh = resume.contact.github ?: userProfile.github
+        val gh = userProfile.github.takeIf { it.isNotBlank() } ?: resume.contact.github.orEmpty()
         if (gh.isNotBlank()) contactParts.add(gh.removePrefix("https://").removePrefix("http://"))
-        val em = resume.contact.email ?: userProfile.email
+        val em = userProfile.email.takeIf { it.isNotBlank() } ?: resume.contact.email.orEmpty()
         if (em.isNotBlank()) contactParts.add(em)
-        val phone = resume.contact.phone
-        if (!phone.isNullOrBlank()) contactParts.add(phone)
+        val phone = userProfile.phone.takeIf { it.isNotBlank() } ?: resume.contact.phone.orEmpty()
+        if (phone.isNotBlank()) contactParts.add(phone)
 
-        val contactLine = if (contactParts.isNotEmpty()) contactParts.joinToString("  ·  ") else "Verified Candidate"
-        canvas.drawText(contactLine, LEFT_MARGIN, y, subtitlePaint)
-        y += 10f
+        if (contactParts.isNotEmpty()) {
+            val contactLine = contactParts.joinToString("  ·  ")
+            canvas.drawText(contactLine, LEFT_MARGIN, y, subtitlePaint)
+            y += 10f
+        }
         canvas.drawLine(LEFT_MARGIN, y, LEFT_MARGIN + contentWidth, y, linePaint)
         y += 10f
 
@@ -445,7 +450,7 @@ object ResumeForgePdfGenerator {
 
         val outputDir = File(context.filesDir, "generated_resumes").apply { mkdirs() }
         val safeCompany = targetCompany.replace(Regex("[^a-zA-Z0-9]"), "_").lowercase()
-        val candidatePrefix = candidateName.replace(Regex("[^a-zA-Z0-9]"), "_")
+        val candidatePrefix = candidateName.ifBlank { "Resume" }.replace(Regex("[^a-zA-Z0-9]"), "_")
         val outputFile = File(outputDir, "ATS_Resume_${candidatePrefix}_${safeCompany}.pdf")
 
         FileOutputStream(outputFile).use { document.writeTo(it) }

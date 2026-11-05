@@ -45,12 +45,13 @@ class ResumeTailor(
         jobDescription: String,
         baseResume: BaseResume,
         gitHubRepos: List<GitHubRepo> = emptyList(),
+        userProfile: com.osrs.careerguild.core.profile.UserProfile? = null,
     ): TailoredResume = withContext(Dispatchers.IO) {
-        val activeBase = baseResume.activeOnly()
+        val activeBase = baseResume.withUserProfile(userProfile).activeOnly()
         val roleFamily = detectRoleFamily("", jobDescription)
         val gapReport = generateGapReport(jobDescription, activeBase)
         val targetRoleTitle = extractRoleTitle(jobDescription)
-        val deterministicTailored = tailorDeterministically(jobDescription, activeBase, gitHubRepos)
+        val deterministicTailored = tailorDeterministically(jobDescription, activeBase, gitHubRepos, userProfile)
 
         if (!tokenGovernor.isGeminiAllowed || apiKey.isBlank()) {
             return@withContext deterministicTailored
@@ -69,11 +70,12 @@ class ResumeTailor(
 
         if (firstResponse != null) {
             tokenGovernor.recordScoringBatch(1)
-            val candidate = parseCandidate(firstResponse)
+            val candidate = parseCandidate(firstResponse)?.copy(contact = activeBase.contact)
             if (candidate != null) {
                 val verification = ResumeVerifier.verify(candidate, activeBase, gitHubRepos)
                 if (verification.isValid) {
                     return@withContext candidate.copy(
+                        contact = activeBase.contact,
                         experience = candidate.experience.filter { it.isActive }.map { TailoredResume.sanitizeExperience(it) },
                         projects = candidate.projects.filter { it.isActive },
                         education = candidate.education.filter { it.isActive },
@@ -95,11 +97,12 @@ class ResumeTailor(
 
                 if (secondResponse != null) {
                     tokenGovernor.recordScoringBatch(1)
-                    val retryCandidate = parseCandidate(secondResponse)
+                    val retryCandidate = parseCandidate(secondResponse)?.copy(contact = activeBase.contact)
                     if (retryCandidate != null) {
                         val retryVerification = ResumeVerifier.verify(retryCandidate, activeBase, gitHubRepos)
                         if (retryVerification.isValid) {
                             return@withContext retryCandidate.copy(
+                                contact = activeBase.contact,
                                 experience = retryCandidate.experience.filter { it.isActive }.map { TailoredResume.sanitizeExperience(it) },
                                 projects = retryCandidate.projects.filter { it.isActive },
                                 education = retryCandidate.education.filter { it.isActive },
@@ -200,10 +203,12 @@ class ResumeTailor(
         jobDescription: String,
         baseResume: BaseResume,
         gitHubRepos: List<GitHubRepo> = emptyList(),
+        userProfile: com.osrs.careerguild.core.profile.UserProfile? = null,
     ): TailoredResume {
+        val effectiveBase = baseResume.withUserProfile(userProfile)
         val jdLower = jobDescription.lowercase()
         val roleFamily = detectRoleFamily("", jobDescription)
-        val gapReport = generateGapReport(jobDescription, baseResume)
+        val gapReport = generateGapReport(jobDescription, effectiveBase)
         val targetRoleTitle = extractRoleTitle(jobDescription)
         val domainTokens = extractDomainKeywords(jdLower)
 
@@ -239,7 +244,7 @@ class ResumeTailor(
 
         // 1. Rank & prioritize existing factual skills by relevance to the target JD
         val repoLanguages = gitHubRepos.flatMap { it.languages }.distinct()
-        val allCandidateSkills = (baseResume.skills + repoLanguages).distinctBy { it.lowercase().trim() }
+        val allCandidateSkills = (effectiveBase.skills + repoLanguages).distinctBy { it.lowercase().trim() }
         val rankedSkills = allCandidateSkills.sortedByDescending { skill ->
             val sLower = skill.lowercase()
             val directMatch = if (jdLower.contains(sLower)) 50 else 0
@@ -247,7 +252,7 @@ class ResumeTailor(
         }
 
         // 2. Re-weight and reorder each active employer's existing factual bullets to lead with the strongest role-family match
-        val tailoredExperience = baseResume.experience.filter { it.isActive }.map { rawExp ->
+        val tailoredExperience = effectiveBase.experience.filter { it.isActive }.map { rawExp ->
             val exp = TailoredResume.sanitizeExperience(rawExp)
             val reorderedBullets = exp.bullets
                 .mapIndexed { idx, bullet -> Triple(bullet, scoreTextRelevance(bullet), idx) }
@@ -257,7 +262,7 @@ class ResumeTailor(
         }
 
         // 3. Re-weight and reorder active projects & project bullets by domain match
-        val tailoredProjects = baseResume.projects.filter { it.isActive }
+        val tailoredProjects = effectiveBase.projects.filter { it.isActive }
             .mapIndexed { pIdx, proj ->
                 val reorderedBullets = proj.bullets
                     .mapIndexed { bIdx, bullet -> Triple(bullet, scoreTextRelevance(bullet), bIdx) }
@@ -271,20 +276,20 @@ class ResumeTailor(
 
         // 4. Concise summary (2 lines max) built strictly from base facts consistent with role family
         val summarySkills = rankedSkills.take(3).joinToString(", ")
-        val tailoredSummary = if (!baseResume.summary.isNullOrBlank()) {
-            baseResume.summary
+        val tailoredSummary = if (!effectiveBase.summary.isNullOrBlank()) {
+            effectiveBase.summary
         } else {
             "Results-driven ${roleFamily.displayName} practitioner with core proficiency in $summarySkills. Experienced engineering reliable, performant solutions grounded in verified production workflows."
         }
 
         return TailoredResume(
-            contact = baseResume.contact,
+            contact = effectiveBase.contact,
             summary = tailoredSummary,
             skills = rankedSkills,
             experience = tailoredExperience,
             projects = tailoredProjects,
-            education = baseResume.education.filter { it.isActive },
-            certifications = baseResume.certifications.filter { it.isActive },
+            education = effectiveBase.education.filter { it.isActive },
+            certifications = effectiveBase.certifications.filter { it.isActive },
             isTailored = true,
             fallbackReason = null,
             targetHeadline = targetRoleTitle,

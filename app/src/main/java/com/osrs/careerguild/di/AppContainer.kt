@@ -46,14 +46,19 @@ private val Context.dataStore by preferencesDataStore(name = "career_guild_prefs
  * ViewModels are created lazily via factory functions called by Compose's
  * `viewModel(factory = ...)` — they live in the Activity's ViewModelStore.
  */
-class AppContainer(context: Context) {
+class AppContainer(
+    context: Context,
+    databaseOverride: com.osrs.careerguild.data.local.CareerGuildDatabase? = null,
+    tailoredResumeDirOverride: java.io.File? = null,
+    allowTestFixtures: Boolean = false,
+) {
 
     // ---------------------------------------------------------------------------
     // Infrastructure
     // ---------------------------------------------------------------------------
 
     private val appContext  = context.applicationContext
-    private val db          = DatabaseModule.createDatabase(appContext)
+    private val db          = databaseOverride ?: DatabaseModule.createDatabase(appContext)
     private val httpClient  = NetworkModule.createHttpClient()
     private val dataStore   = appContext.dataStore
 
@@ -97,13 +102,20 @@ class AppContainer(context: Context) {
     val skillRepository      = SkillRepositoryImpl(skillDao)
     val jobRepository        = JobRepositoryImpl(jobDao, blockedCompanyDao)
     val courierRepository    = com.osrs.careerguild.data.repository.CourierRepository(httpClient)
-    val baseResumeRepository : BaseResumeRepository = BaseResumeRepositoryImpl(baseResumeDao)
+    val baseResumeRepository : BaseResumeRepository = BaseResumeRepositoryImpl(
+        dao = baseResumeDao,
+        rejectSyntheticFixtures = !allowTestFixtures,
+    )
     val resumeTextExtractor  = ResumeTextExtractor(appContext)
     val resumeStructurer     = ResumeStructurer(tokenGovernor)
     val resumeTailor         = com.osrs.careerguild.domain.resume.ResumeTailor(tokenGovernor)
     val forgeOutbox          = ForgeOutbox(appContext)
     val forgeInbox           = ForgeInbox(appContext)
-    val tailoredResumeStore  = com.osrs.careerguild.core.resume.TailoredResumeStore(appContext)
+    val tailoredResumeStore  = com.osrs.careerguild.core.resume.TailoredResumeStore(
+        context = appContext,
+        baseDirOverride = tailoredResumeDirOverride,
+        rejectSyntheticFixtures = !allowTestFixtures,
+    )
 
     // ---------------------------------------------------------------------------
     // Remote / Scraper

@@ -360,26 +360,40 @@ fun CourierGuildScreen(
                 return@launch
             }
 
-            // Check if TailoredResume exists for that job
-            val tailored = appContainer.tailoredResumeStore.getTailoredResume(app.id)
-            if (tailored == null) {
-                val reason = "Cannot queue for Forge: No TailoredResume exists for ${app.company}. Please tailor your resume in Scribe Tower first."
-                appendConsoleLog("❌ $reason")
-                Toast.makeText(context, reason, Toast.LENGTH_LONG).show()
-                return@launch
-            }
-
-            // Verify with ResumeVerifier
-            val base = baseResume
-            if (base == null) {
-                val reason = "Cannot queue for Forge: Master Base Resume has not been loaded."
+            // Strictly load the user's actual BaseResume and UserProfileManager data from the database
+            val profile = profileManager.profile.value
+            val rawBase = withContext(Dispatchers.IO) {
+                appContainer.baseResumeRepository.getBaseResume()
+            } ?: baseResume
+            if (rawBase == null) {
+                val reason = "Cannot queue for Forge: Master Base Resume has not been loaded. Upload your resume in Scribe Tower first."
                 appendConsoleLog("❌ $reason")
                 Toast.makeText(context, reason, Toast.LENGTH_SHORT).show()
                 return@launch
             }
+            val base = rawBase.withUserProfile(profile)
+            val repos = withContext(Dispatchers.IO) {
+                appContainer.gitHubRepoDao.getAll().map { it.toDomain() }
+            }
+            val jobListing = withContext(Dispatchers.IO) {
+                appContainer.jobRepository.getJobById(app.id)
+            }
+            val jobDescription = jobListing?.description.orEmpty().ifBlank { "${app.title} at ${app.company}" }
 
-            val repos = appContainer.gitHubRepoDao.getAll().map { it.toDomain() }
-            val verification = ResumeVerifier.verify(tailored, base, repos)
+            // Load existing TailoredResume for this job or tailor fresh from the user's actual BaseResume
+            val tailored = withContext(Dispatchers.IO) {
+                val existing = appContainer.tailoredResumeStore.getTailoredResume(app.id)?.copy(contact = base.contact)
+                if (existing != null && ResumeVerifier.verify(existing, base.activeOnly(), repos).isValid) {
+                    appContainer.tailoredResumeStore.saveTailoredResume(app.id, existing)
+                    existing
+                } else {
+                    val freshlyTailored = appContainer.resumeTailor.tailor(jobDescription, base, repos, profile)
+                    appContainer.tailoredResumeStore.saveTailoredResume(app.id, freshlyTailored)
+                    freshlyTailored
+                }
+            }
+
+            val verification = ResumeVerifier.verify(tailored, base.activeOnly(), repos)
             if (!verification.isValid) {
                 val violationList = verification.violations.joinToString("; ")
                 val reason = "Cannot queue for Forge: Resume verification failed: $violationList"
@@ -410,7 +424,6 @@ fun CourierGuildScreen(
             val answersList = storedAnswers.map { ForgeAnswer(questionPattern = it.questionPattern, answer = it.answer) }
 
             // Dynamic fields from UserProfileManager
-            val profile = profileManager.profile.value
             val nameParts = profile.name.trim().split(Regex("\\s+"), limit = 2)
             val firstName = nameParts.getOrNull(0)?.ifBlank { null }
             val lastName = nameParts.getOrNull(1)?.ifBlank { null }
@@ -1924,24 +1937,68 @@ private fun CourierPdfViewerDialog(
 ) {
     val context = LocalContext.current
     val appContainer = LocalAppContainer.current
-    val baseResume by appContainer.baseResumeRepository.observeBaseResume().collectAsState(initial = null)
+    val observedBase by appContainer.baseResumeRepository.observeBaseResume().collectAsState(initial = null)
+    var resolvedTailored by remember(app.id) { mutableStateOf<TailoredResume?>(null) }
+    var resolvedPdfFile by remember(app.id) { mutableStateOf<File?>(null) }
 
-    val tailoredResume = remember(baseResume, app) {
-        baseResume?.let { TailoredResume.fromBaseResume(it) } ?: TailoredResume()
+    LaunchedEffect(app.id, observedBase, userProfile) {
+        withContext(Dispatchers.IO) {
+            val rawBase = appContainer.baseResumeRepository.getBaseResume() ?: observedBase
+            val effectiveBase = rawBase?.withUserProfile(userProfile)
+            if (effectiveBase != null) {
+                val repos = appContainer.gitHubRepoDao.getAll().map { it.toDomain() }
+                val stored = appContainer.tailoredResumeStore.getTailoredResume(app.id)
+                    ?.copy(contact = effectiveBase.contact)
+                val activeTailored = if (stored != null && ResumeVerifier.verify(stored, effectiveBase.activeOnly(), repos).isValid) {
+                    stored
+                } else {
+                    val jobListing = appContainer.jobRepository.getJobById(app.id)
+                    val jd = jobListing?.description.orEmpty().ifBlank { "${app.title} at ${app.company}" }
+                    appContainer.resumeTailor.tailorDeterministically(jd, effectiveBase.activeOnly(), repos, userProfile)
+                }
+                resolvedTailored = activeTailored
+                val forged = ResumeForgePdfGenerator.forgeAtsResume(
+                    context = context,
+                    tailoredResume = activeTailored,
+                    targetTitle = app.title,
+                    targetCompany = app.company,
+                ).getOrNull()?.file
+                if (forged != null && forged.exists()) {
+                    resolvedPdfFile = forged
+                }
+            } else {
+                resolvedTailored = TailoredResume(
+                    contact = com.osrs.careerguild.core.resume.ResumeContact(
+                        name = userProfile.name.ifBlank { null },
+                        email = userProfile.email.ifBlank { null },
+                        phone = userProfile.phone.ifBlank { null },
+                        location = userProfile.location.ifBlank { null },
+                        github = userProfile.github.ifBlank { null },
+                    ),
+                )
+            }
+        }
     }
 
-    // Ensure PDF file exists on disk
+    val tailoredResume = resolvedTailored ?: remember(observedBase, userProfile) {
+        observedBase?.withUserProfile(userProfile)?.let { TailoredResume.fromBaseResume(it) }
+            ?: TailoredResume(
+                contact = com.osrs.careerguild.core.resume.ResumeContact(
+                    name = userProfile.name.ifBlank { null },
+                    email = userProfile.email.ifBlank { null },
+                    phone = userProfile.phone.ifBlank { null },
+                    location = userProfile.location.ifBlank { null },
+                    github = userProfile.github.ifBlank { null },
+                ),
+            )
+    }
+
     val safeCompany = app.company.replace(Regex("[^a-zA-Z0-9]"), "_").lowercase()
-    val candidatePrefix = userProfile.name.ifBlank { "Candidate" }.replace(Regex("[^a-zA-Z0-9]"), "_")
-    val pdfFile = File(File(context.filesDir, "generated_resumes"), "ATS_Resume_${candidatePrefix}_${safeCompany}.pdf")
-    if (!pdfFile.exists()) {
-        ResumeForgePdfGenerator.forgeAtsResume(
-            context = context,
-            tailoredResume = tailoredResume,
-            targetTitle = app.title,
-            targetCompany = app.company,
-        )
-    }
+    val candidateName = userProfile.name.takeIf { it.isNotBlank() }
+        ?: tailoredResume.contact.name?.takeIf { it.isNotBlank() }
+        ?: "Resume"
+    val candidatePrefix = candidateName.replace(Regex("[^a-zA-Z0-9]"), "_")
+    val pdfFile = resolvedPdfFile ?: File(File(context.filesDir, "generated_resumes"), "ATS_Resume_${candidatePrefix}_${safeCompany}.pdf")
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2104,21 +2161,22 @@ private fun CourierAutofillWebViewDialog(
         val plainPortalPassword = if (existingAccount != null) {
             onStepLog("🔑 Found existing Courier Vault credentials for ${app.company} (${existingAccount.emailUsed}).")
             CourierAutoApplyDispatcher.decryptPassword(existingAccount.passwordEncrypted)
-        } else {
+        } else if (email.isNotBlank()) {
             val generatedPwd = CourierAutoApplyDispatcher.generateStrongPassword()
             val encryptedPwd = CourierAutoApplyDispatcher.encryptPassword(generatedPwd)
-            val effectiveEmail = email.ifBlank { "candidate@careerguild.local" }
             courierAccountDao.insertAccount(
                 CourierAccountEntity(
                     companyName = app.company,
                     jobTitle = app.title,
                     portalUrl = app.atsUrl,
-                    emailUsed = effectiveEmail,
+                    emailUsed = email,
                     passwordEncrypted = encryptedPwd,
                 )
             )
-            onStepLog("🔑 Account Gate Vault: Generated & saved strong password for ${app.company} ($effectiveEmail).")
+            onStepLog("🔑 Account Gate Vault: Generated & saved strong password for ${app.company} ($email).")
             generatedPwd
+        } else {
+            ""
         }
 
         // Populate password / account creation gate fields if present on the portal
@@ -2590,14 +2648,16 @@ private fun AccountsMadeByCourierDialog(
                         }
                         Button(
                             onClick = {
-                                val effectiveEmail = userEmail.ifBlank { "candidate@careerguild.local" }
-                                onProvisionAccount(
-                                    newCompany.trim().ifBlank { "Workday Portal" },
-                                    newJobTitle.trim().ifBlank { "Software Engineer" },
-                                    newPortalUrl.trim().ifBlank { "https://myworkdayjobs.com" },
-                                    effectiveEmail,
-                                )
+                                if (userEmail.isNotBlank()) {
+                                    onProvisionAccount(
+                                        newCompany.trim().ifBlank { "Portal" },
+                                        newJobTitle.trim().ifBlank { "Role" },
+                                        newPortalUrl.trim(),
+                                        userEmail.trim(),
+                                    )
+                                }
                             },
+                            enabled = userEmail.isNotBlank(),
                             shape = RoundedCornerShape(6.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color(0xFF0A2E38),

@@ -1,5 +1,6 @@
 package com.osrs.careerguild.core.resume
 
+import com.osrs.careerguild.core.profile.UserProfile
 import kotlinx.serialization.Serializable
 
 /**
@@ -27,6 +28,23 @@ data class BaseResume(
         certifications = certifications.filter { it.isActive },
         projects = projects.filter { it.isActive },
     )
+
+    /**
+     * Merges dynamic candidate identity fields from [UserProfile] into [contact] when non-blank,
+     * ensuring live profile updates propagate to tailoring and PDF generation.
+     */
+    fun withUserProfile(profile: UserProfile?): BaseResume {
+        if (profile == null) return this
+        return copy(
+            contact = contact.copy(
+                name = profile.name.takeIf { it.isNotBlank() } ?: contact.name,
+                email = profile.email.takeIf { it.isNotBlank() } ?: contact.email,
+                phone = profile.phone.takeIf { it.isNotBlank() } ?: contact.phone,
+                location = profile.location.takeIf { it.isNotBlank() } ?: contact.location,
+                github = profile.github.takeIf { it.isNotBlank() } ?: contact.github,
+            ),
+        )
+    }
 
     fun getCategorizedSkills(jdKeywords: List<String> = emptyList()): Map<String, List<String>> {
         if (categorizedSkills.isNotEmpty()) {

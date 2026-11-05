@@ -83,7 +83,7 @@ object CourierPipelineExecutor {
         task: CourierTaskEntity,
         container: AppContainer,
     ): ForgePreparationOutcome = withContext(Dispatchers.IO) {
-        val baseResume = container.baseResumeRepository.getBaseResume()
+        val rawBaseResume = container.baseResumeRepository.getBaseResume()
             ?: return@withContext ForgePreparationOutcome(
                 pdfFile = null,
                 tailoredResume = null,
@@ -93,21 +93,25 @@ object CourierPipelineExecutor {
 
         val repos = loadCachedGitHubRepos(container)
         val profile = UserProfileManager.getInstance(context).profile.value
+        val baseResume = rawBaseResume.withUserProfile(profile)
         val jobListing = container.jobRepository.getJobById(task.jobId)
         val jobDescription = jobListing?.description.orEmpty().ifBlank { "${task.title} at ${task.company}" }
 
         // 1. Check if a verified TailoredResume + PDF already exist for this job
         val existingTailored = container.tailoredResumeStore.getTailoredResume(task.jobId)
+            ?.copy(contact = baseResume.contact)
         if (existingTailored != null) {
             val check = ResumeVerifier.verify(existingTailored, baseResume.activeOnly(), repos)
             if (check.isValid) {
-                val existingPdf = task.resumePdfPath?.let { File(it) }?.takeIf { it.isFile && it.length() > 0 }
-                    ?: ResumeForgePdfGenerator.forgeAtsResume(
-                        context = context,
-                        tailoredResume = existingTailored,
-                        targetTitle = task.title,
-                        targetCompany = task.company,
-                    ).getOrNull()?.file
+                container.tailoredResumeStore.saveTailoredResume(task.jobId, existingTailored)
+                val existingPdf = task.resumePdfPath?.let { File(it) }?.takeIf {
+                    it.isFile && it.length() > 0 && !it.name.lowercase().contains("alex_mercer") && !it.name.lowercase().contains("synthetic")
+                } ?: ResumeForgePdfGenerator.forgeAtsResume(
+                    context = context,
+                    tailoredResume = existingTailored,
+                    targetTitle = task.title,
+                    targetCompany = task.company,
+                ).getOrNull()?.file
                 if (existingPdf != null && existingPdf.exists()) {
                     return@withContext ForgePreparationOutcome(
                         pdfFile = existingPdf,
@@ -121,9 +125,9 @@ object CourierPipelineExecutor {
         var lastViolations = emptyList<String>()
         for (attempt in 1..2) {
             val candidate = if (attempt == 1) {
-                container.resumeTailor.tailor(jobDescription, baseResume, repos)
+                container.resumeTailor.tailor(jobDescription, baseResume, repos, profile)
             } else {
-                container.resumeTailor.tailorDeterministically(jobDescription, baseResume.activeOnly(), repos)
+                container.resumeTailor.tailorDeterministically(jobDescription, baseResume.activeOnly(), repos, profile)
             }
             val verification = ResumeVerifier.verify(candidate, baseResume.activeOnly(), repos)
             if (verification.isValid) {
@@ -132,7 +136,7 @@ object CourierPipelineExecutor {
                     context = context,
                     tailoredResume = candidate,
                     targetTitle = task.title.ifBlank { profile.name },
-                    targetCompany = task.company.ifBlank { "Company" },
+                    targetCompany = task.company,
                 )
                 val pdfFile = pdfRes.getOrNull()?.file
                 if (pdfFile != null && pdfFile.exists()) {
