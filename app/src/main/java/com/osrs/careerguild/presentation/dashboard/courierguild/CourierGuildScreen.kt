@@ -180,6 +180,11 @@ fun CourierGuildScreen(
     var showAccountsModal by remember { mutableStateOf(false) }
     val applicantAnswers by appContainer.applicantAnswerDao.observeAll().collectAsState(initial = emptyList())
     var showAnswersModal by remember { mutableStateOf(false) }
+    val persistedTasks by appContainer.courierTaskDao.observeAll().collectAsState(initial = emptyList())
+    val workerSlots by appContainer.courierWebHost.workerSlots.collectAsState()
+    val takeoverTaskId by CourierAutoApplyDispatcher.takeoverTaskId.collectAsState()
+    val activeQuest by CourierAutoApplyDispatcher.activeQuest.collectAsState()
+    var showLocalQuestModal by remember { mutableStateOf(false) }
 
     val applications = remember {
         mutableStateListOf(
@@ -263,16 +268,92 @@ fun CourierGuildScreen(
         }
     }
 
+    fun enqueuePersistentCourierTask(app: QueuedApplication, pdfPathOverride: String? = null) {
+        coroutineScope.launch {
+            val openOrSubmittedCount = withContext(Dispatchers.IO) {
+                appContainer.courierTaskDao.countOpenOrSubmittedForJob(app.id)
+            }
+            if (openOrSubmittedCount > 0) {
+                val msg = "Duplicate Guard: Job ${app.company} (${app.title}) already has an open or submitted task."
+                appendConsoleLog("⚠ $msg")
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val nowMs = System.currentTimeMillis()
+            val taskId = "courier_${app.id}_$nowMs"
+            val atsPlatform = CourierAgentConfig.detectAtsPlatform(app.atsUrl, app.platform)
+            val submitPolicy = if (app.allowAutoSubmit) {
+                SubmitPolicy.AUTO_SUBMIT.name
+            } else {
+                SubmitPolicy.REVIEW_BEFORE_SUBMIT.name
+            }
+            val entity = com.osrs.careerguild.data.local.entity.CourierTaskEntity(
+                taskId = taskId,
+                jobId = app.id,
+                jobUrl = app.atsUrl,
+                ats = atsPlatform,
+                title = app.title,
+                company = app.company,
+                status = CourierTaskStatus.QUEUED.name,
+                step = "QUEUED",
+                currentUrl = app.atsUrl,
+                filledFieldsJson = "{}",
+                blockedReason = null,
+                blockedFieldsJson = "[]",
+                resumePdfPath = pdfPathOverride,
+                submitPolicy = submitPolicy,
+                reviewRequired = !app.allowAutoSubmit,
+                attempts = 0,
+                lastError = null,
+                snoozedUntil = null,
+                createdAt = nowMs,
+                updatedAt = nowMs,
+            )
+            withContext(Dispatchers.IO) {
+                appContainer.courierTaskDao.upsert(entity)
+            }
+            CourierQueueWorker.enqueueTask(
+                context = context,
+                taskId = taskId,
+                requireNetwork = !app.atsUrl.contains("appassets.androidplatform.net"),
+                replaceExisting = false,
+            )
+            appendConsoleLog("🚀 Enqueued persistent Courier background task $taskId for ${app.company} (${app.title}) [policy=$submitPolicy].")
+        }
+    }
+
+    // Sync live Room courier_task status & blocked fields back to the in-memory ledger cards
+    LaunchedEffect(persistedTasks) {
+        for (task in persistedTasks) {
+            val idx = applications.indexOfFirst { it.id == task.jobId }
+            if (idx != -1) {
+                val taskStatus = CourierTaskStatus.fromString(task.status)
+                val uiStatus = CourierStateMachine.toUiApplicationStatus(taskStatus)
+                val blockedList = parseBlockedFieldsJson(task.blockedFieldsJson)
+                if (applications[idx].status != uiStatus || applications[idx].missingFields != blockedList) {
+                    applications[idx] = applications[idx].copy(
+                        status = uiStatus,
+                        missingFields = blockedList,
+                        forgeTaskId = task.taskId,
+                    )
+                }
+            }
+        }
+    }
+
     fun queueForForge(app: QueuedApplication) {
         coroutineScope.launch {
-            // Task 4: Duplicate guard: never queue the same job_id twice while a task for it is open or submitted
+            // Task 4 / Phase 4.3: Duplicate guard: never queue the same job_id twice while a task for it is open or submitted
+            val dbOpenCount = withContext(Dispatchers.IO) {
+                appContainer.courierTaskDao.countOpenOrSubmittedForJob(app.id)
+            }
             val pendingTaskIds = appContainer.forgeOutbox.listPendingTaskIds()
-            val hasOpenTask = pendingTaskIds.any { it.contains(app.id) }
+            val hasOpenTask = dbOpenCount > 0 || pendingTaskIds.any { it.contains(app.id) }
             val isSubmittedOrOpen = app.status == ApplicationStatus.SUBMITTED ||
                     app.status == ApplicationStatus.IN_TRANSIT ||
                     app.status == ApplicationStatus.AWAITING_REVIEW
 
-            if (hasOpenTask || app.status == ApplicationStatus.SUBMITTED) {
+            if (hasOpenTask || isSubmittedOrOpen) {
                 val msg = "Duplicate Guard: Job ${app.company} (${app.title}) is already open or submitted."
                 appendConsoleLog("⚠ $msg")
                 Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -376,7 +457,8 @@ fun CourierGuildScreen(
             }
 
             appendConsoleLog("📦 Forge Outbox: Task $taskId written to outbox for ${app.company} (${app.title}). Auto-submit: ${app.allowAutoSubmit}")
-            Toast.makeText(context, "Queued for Forge: ${app.company}", Toast.LENGTH_SHORT).show()
+            enqueuePersistentCourierTask(app, pdfPathOverride = pdfFile.absolutePath)
+            Toast.makeText(context, "Queued for Forge & Courier Worker: ${app.company}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -742,6 +824,89 @@ fun CourierGuildScreen(
                 )
             }
 
+            // 3b. Agent Room Worker Slots (Up to 5 Concurrent Workers) + Persistent Room Tasks Ledger
+            item {
+                PersistentAgentRoomAndTasksCard(
+                    workerSlots = workerSlots,
+                    persistedTasks = persistedTasks,
+                    activeQuest = activeQuest,
+                    onOpenQuestModal = { showLocalQuestModal = true },
+                    onCancelSlotWorker = { slotTaskId ->
+                        if (slotTaskId.isNotBlank()) {
+                            CourierAutoApplyDispatcher.cancelWorker(context, slotTaskId)
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val existing = appContainer.courierTaskDao.getById(slotTaskId)
+                                if (existing != null) {
+                                    val cancelled = CourierStateMachine.transition(
+                                        task = existing,
+                                        targetStatus = CourierTaskStatus.CANCELLED,
+                                        step = "CANCELLED_IN_AGENT_ROOM",
+                                    )
+                                    appContainer.courierTaskDao.upsert(cancelled)
+                                }
+                            }
+                            appendConsoleLog("🛑 Cancelled worker for task $slotTaskId and freed WebView slot.")
+                        }
+                    },
+                    onResumeTask = { task ->
+                        coroutineScope.launch(Dispatchers.IO) {
+                            val currentStatus = CourierTaskStatus.fromString(task.status)
+                            val updated = if (CourierStateMachine.canTransition(currentStatus, CourierTaskStatus.QUEUED)) {
+                                CourierStateMachine.transition(
+                                    task = task,
+                                    targetStatus = CourierTaskStatus.QUEUED,
+                                    step = "RESUMED_FROM_LEDGER",
+                                )
+                            } else {
+                                task.copy(status = CourierTaskStatus.QUEUED.name, updatedAt = System.currentTimeMillis())
+                            }
+                            appContainer.courierTaskDao.upsert(updated)
+                            CourierQueueWorker.enqueueTask(
+                                context = context,
+                                taskId = task.taskId,
+                                requireNetwork = !task.jobUrl.contains("appassets.androidplatform.net"),
+                                replaceExisting = true,
+                            )
+                        }
+                        appendConsoleLog("▶ Resumed persistent Courier task ${task.taskId} (${task.company}).")
+                    },
+                    onOpenTakeover = { task ->
+                        CourierAutoApplyDispatcher.openTakeover(task.taskId)
+                    },
+                    onSnoozeTask = { task ->
+                        val snoozeDurationMs = CourierStateMachine.DEFAULT_SNOOZE_DURATION_MS
+                        val snoozedUntil = System.currentTimeMillis() + snoozeDurationMs
+                        coroutineScope.launch(Dispatchers.IO) {
+                            val currentStatus = CourierTaskStatus.fromString(task.status)
+                            if (CourierStateMachine.canTransition(currentStatus, CourierTaskStatus.SNOOZED)) {
+                                val snoozed = CourierStateMachine.transition(
+                                    task = task,
+                                    targetStatus = CourierTaskStatus.SNOOZED,
+                                    step = "SNOOZED_FROM_LEDGER",
+                                    snoozedUntil = snoozedUntil,
+                                )
+                                appContainer.courierTaskDao.upsert(snoozed)
+                                CourierQueueWorker.enqueueTask(
+                                    context = context,
+                                    taskId = task.taskId,
+                                    initialDelayMs = snoozeDurationMs,
+                                    requireNetwork = !task.jobUrl.contains("appassets.androidplatform.net"),
+                                    replaceExisting = true,
+                                )
+                            }
+                        }
+                        appendConsoleLog("💤 Snoozed task ${task.taskId} (${task.company}) for 30m.")
+                    },
+                    onRemoveTask = { task ->
+                        CourierAutoApplyDispatcher.cancelWorker(context, task.taskId)
+                        coroutineScope.launch(Dispatchers.IO) {
+                            appContainer.courierTaskDao.deleteById(task.taskId)
+                        }
+                        appendConsoleLog("🗑 Removed persistent task ${task.taskId} (${task.company}).")
+                    },
+                )
+            }
+
             // 4. Queued Application Cards
             val filteredApps = applications.filter {
                 selectedStatus == null || it.status == selectedStatus
@@ -886,6 +1051,158 @@ fun CourierGuildScreen(
                 activeWebViewApp = null
             },
             onDismiss = { activeWebViewApp = null },
+        )
+    }
+
+    // Phase 1.5 & 4.4: Interactive Takeover Screen for BLOCKED_NEEDS_INPUT / AWAITING_REVIEW / UNCONFIRMED
+    val activeTakeoverTask = remember(takeoverTaskId, persistedTasks) {
+        takeoverTaskId?.let { id -> persistedTasks.firstOrNull { it.taskId == id } }
+    }
+    if (activeTakeoverTask != null) {
+        CourierTakeoverScreen(
+            task = activeTakeoverTask,
+            onResumeTask = { updatedUrl, enteredAnswers, rememberedAnswers ->
+                coroutineScope.launch(Dispatchers.IO) {
+                    if (rememberedAnswers.isNotEmpty()) {
+                        val answerEntities = rememberedAnswers.map { (pattern, ans) ->
+                            com.osrs.careerguild.data.local.entity.ApplicantAnswerEntity(
+                                questionPattern = pattern,
+                                answer = ans,
+                            )
+                        }
+                        appContainer.applicantAnswerDao.insertOrUpdateAll(answerEntities)
+                    }
+                    val mergedFilled = CourierQueueWorker.parseFilledFieldsMap(activeTakeoverTask.filledFieldsJson).apply {
+                        putAll(enteredAnswers)
+                    }
+                    val filledJson = org.json.JSONObject(mergedFilled as Map<*, *>).toString()
+                    val resumed = CourierStateMachine.transition(
+                        task = activeTakeoverTask.copy(filledFieldsJson = filledJson),
+                        targetStatus = CourierTaskStatus.QUEUED,
+                        step = "RESUMED_FROM_TAKEOVER",
+                        currentUrl = updatedUrl.ifBlank { activeTakeoverTask.currentUrl },
+                    )
+                    appContainer.courierTaskDao.upsert(resumed)
+                    CourierQueueWorker.enqueueTask(
+                        context = context,
+                        taskId = activeTakeoverTask.taskId,
+                        requireNetwork = !resumed.currentUrl.contains("appassets.androidplatform.net"),
+                        replaceExisting = true,
+                    )
+                }
+                appendConsoleLog("▶ Resumed task ${activeTakeoverTask.taskId} (${activeTakeoverTask.company}) from Takeover.")
+                CourierAutoApplyDispatcher.closeTakeover()
+            },
+            onMarkSubmitted = { note ->
+                coroutineScope.launch(Dispatchers.IO) {
+                    val submitted = CourierStateMachine.transition(
+                        task = activeTakeoverTask,
+                        targetStatus = CourierTaskStatus.SUBMITTED,
+                        step = "SUBMITTED_BY_USER",
+                        lastError = note,
+                    )
+                    appContainer.courierTaskDao.upsert(submitted)
+                    appContainer.markAppliedUseCase(activeTakeoverTask.jobId)
+                }
+                appendConsoleLog("✅ Marked ${activeTakeoverTask.company} (${activeTakeoverTask.title}) SUBMITTED ($note).")
+                CourierAutoApplyDispatcher.closeTakeover()
+            },
+            onSnoozeTask = {
+                val snoozeDurationMs = CourierStateMachine.DEFAULT_SNOOZE_DURATION_MS
+                val snoozedUntil = System.currentTimeMillis() + snoozeDurationMs
+                coroutineScope.launch(Dispatchers.IO) {
+                    val snoozed = CourierStateMachine.transition(
+                        task = activeTakeoverTask,
+                        targetStatus = CourierTaskStatus.SNOOZED,
+                        step = "SNOOZED_IN_TAKEOVER",
+                        snoozedUntil = snoozedUntil,
+                    )
+                    appContainer.courierTaskDao.upsert(snoozed)
+                    CourierQueueWorker.enqueueTask(
+                        context = context,
+                        taskId = activeTakeoverTask.taskId,
+                        initialDelayMs = snoozeDurationMs,
+                        requireNetwork = !activeTakeoverTask.jobUrl.contains("appassets.androidplatform.net"),
+                        replaceExisting = true,
+                    )
+                }
+                appendConsoleLog("💤 Snoozed ${activeTakeoverTask.company} from Takeover.")
+                CourierAutoApplyDispatcher.closeTakeover()
+            },
+            onCancelTask = {
+                CourierAutoApplyDispatcher.cancelWorker(context, activeTakeoverTask.taskId)
+                coroutineScope.launch(Dispatchers.IO) {
+                    val cancelled = CourierStateMachine.transition(
+                        task = activeTakeoverTask,
+                        targetStatus = CourierTaskStatus.CANCELLED,
+                        step = "CANCELLED_IN_TAKEOVER",
+                    )
+                    appContainer.courierTaskDao.upsert(cancelled)
+                }
+                appendConsoleLog("🛑 Cancelled ${activeTakeoverTask.company} from Takeover.")
+                CourierAutoApplyDispatcher.closeTakeover()
+            },
+            onDismiss = { CourierAutoApplyDispatcher.closeTakeover() },
+        )
+    }
+
+    // Quest Modal inside CourierGuildScreen (Complete / Leave it / Snooze)
+    if (showLocalQuestModal && activeQuest != null) {
+        val q = activeQuest!!
+        CourierCaptchaQuestModal(
+            quest = q,
+            onCompleteCaptcha = {
+                if (q.appId.isNotBlank()) {
+                    CourierAutoApplyDispatcher.openTakeover(q.appId)
+                }
+                CourierAutoApplyDispatcher.clearQuest()
+                showLocalQuestModal = false
+            },
+            onLeaveIt = {
+                if (q.appId.isNotBlank()) {
+                    CourierAutoApplyDispatcher.cancelWorker(context, q.appId)
+                    coroutineScope.launch(Dispatchers.IO) {
+                        val existing = appContainer.courierTaskDao.getById(q.appId)
+                        if (existing != null) {
+                            val cancelled = CourierStateMachine.transition(
+                                task = existing,
+                                targetStatus = CourierTaskStatus.CANCELLED,
+                                step = "CANCELLED_BY_USER",
+                            )
+                            appContainer.courierTaskDao.upsert(cancelled)
+                        }
+                    }
+                }
+                CourierAutoApplyDispatcher.clearQuest()
+                showLocalQuestModal = false
+            },
+            onSnooze = {
+                if (q.appId.isNotBlank()) {
+                    val snoozeDurationMs = CourierStateMachine.DEFAULT_SNOOZE_DURATION_MS
+                    val snoozedUntil = System.currentTimeMillis() + snoozeDurationMs
+                    coroutineScope.launch(Dispatchers.IO) {
+                        val existing = appContainer.courierTaskDao.getById(q.appId)
+                        if (existing != null) {
+                            val snoozed = CourierStateMachine.transition(
+                                task = existing,
+                                targetStatus = CourierTaskStatus.SNOOZED,
+                                step = "SNOOZED_BY_USER",
+                                snoozedUntil = snoozedUntil,
+                            )
+                            appContainer.courierTaskDao.upsert(snoozed)
+                            CourierQueueWorker.enqueueTask(
+                                context = context,
+                                taskId = q.appId,
+                                initialDelayMs = snoozeDurationMs,
+                                replaceExisting = true,
+                            )
+                        }
+                    }
+                }
+                CourierAutoApplyDispatcher.clearQuest()
+                showLocalQuestModal = false
+            },
+            onDismiss = { showLocalQuestModal = false },
         )
     }
 }
@@ -2457,4 +2774,216 @@ private fun AccountsMadeByCourierDialog(
             }
         },
     )
+}
+
+/**
+ * Agent Room 5-worker slot monitor + Persistent Room `courier_task` ledger (Phase 4.4 & Reconciliation §2, §3).
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PersistentAgentRoomAndTasksCard(
+    workerSlots: List<CourierWorkerSlot>,
+    persistedTasks: List<com.osrs.careerguild.data.local.entity.CourierTaskEntity>,
+    activeQuest: CourierCaptchaQuest?,
+    onOpenQuestModal: () -> Unit,
+    onCancelSlotWorker: (taskId: String) -> Unit,
+    onResumeTask: (com.osrs.careerguild.data.local.entity.CourierTaskEntity) -> Unit,
+    onOpenTakeover: (com.osrs.careerguild.data.local.entity.CourierTaskEntity) -> Unit,
+    onSnoozeTask: (com.osrs.careerguild.data.local.entity.CourierTaskEntity) -> Unit,
+    onRemoveTask: (com.osrs.careerguild.data.local.entity.CourierTaskEntity) -> Unit,
+) {
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = OsrsStone),
+        border = BorderStroke(1.2.dp, OsrsGold.copy(alpha = 0.85f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "⚙ AGENT ROOM SLOTS (${CourierAgentConfig.maxConcurrentWorkers} CONCURRENT) & WORKMANAGER LEDGER",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                        color = OsrsGold,
+                    )
+                    Text(
+                        text = "Daily Cap: ${CourierAgentConfig.dailyCap}/day · Pacing: ${CourierAgentConfig.interApplicationDelayMinMs / 1000}s–${CourierAgentConfig.interApplicationDelayMaxMs / 1000}s · Write-Ahead Room Persistence",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp),
+                        color = OsrsTextDim,
+                    )
+                }
+                if (activeQuest != null) {
+                    CourierQuestOrb(onClick = onOpenQuestModal)
+                }
+            }
+
+            // 5 Worker Slots row
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                items(workerSlots, key = { it.slotIndex }) { slot ->
+                    val isBusy = slot.taskId.isNotBlank()
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (isBusy) Color(0xFF0F2D38) else OsrsDarkStone,
+                        border = BorderStroke(
+                            1.dp,
+                            if (isBusy) Color(0xFF00E5FF) else OsrsDarkBorder,
+                        ),
+                        modifier = Modifier.width(155.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Text(
+                                text = "Worker #${slot.slotIndex + 1} · ${slot.status.name}",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                ),
+                                color = if (isBusy) Color(0xFF00E5FF) else OsrsTextDim,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = if (isBusy) "${slot.company} · ${slot.jobTitle}" else "Idle Slot",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (isBusy) {
+                                OutlinedButton(
+                                    onClick = { onCancelSlotWorker(slot.taskId) },
+                                    shape = RoundedCornerShape(4.dp),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                    border = BorderStroke(1.dp, Color(0xFFEF5350)),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        text = "Cancel Worker",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontSize = 8.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                        ),
+                                        color = Color(0xFFEF5350),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Persisted Room tasks with live status, blocked_reason, blocked field labels, and Resume / Open Takeover / Remove
+            if (persistedTasks.isNotEmpty()) {
+                Text(
+                    text = "📋 PERSISTENT ROOM TASKS (${persistedTasks.size})",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFF81C784),
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    persistedTasks.take(10).forEach { task ->
+                        val blockedLabels = remember(task.blockedFieldsJson) {
+                            parseBlockedFieldsJson(task.blockedFieldsJson)
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = OsrsDarkStone,
+                            border = BorderStroke(1.dp, OsrsGold.copy(alpha = 0.45f)),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = "${task.company.ifBlank { task.ats }} · ${task.title.ifBlank { task.taskId }}",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Text(
+                                        text = "[${task.status}]",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                        ),
+                                        color = OsrsGold,
+                                    )
+                                }
+                                if (!task.blockedReason.isNullOrBlank()) {
+                                    Text(
+                                        text = "⚠ Blocked Reason: ${task.blockedReason}",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Bold),
+                                        color = Color(0xFFEF5350),
+                                    )
+                                }
+                                if (blockedLabels.isNotEmpty()) {
+                                    Text(
+                                        text = "Missing / Blocked Fields: ${blockedLabels.joinToString(", ")}",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                        color = Color(0xFFFFB74D),
+                                    )
+                                }
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { onResumeTask(task) },
+                                        shape = RoundedCornerShape(4.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        border = BorderStroke(1.dp, Color(0xFF4CAF50)),
+                                    ) {
+                                        Text("Resume", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFF81C784))
+                                    }
+                                    OutlinedButton(
+                                        onClick = { onOpenTakeover(task) },
+                                        shape = RoundedCornerShape(4.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        border = BorderStroke(1.dp, Color(0xFF00E5FF)),
+                                    ) {
+                                        Text("Open Takeover", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFF00E5FF))
+                                    }
+                                    OutlinedButton(
+                                        onClick = { onSnoozeTask(task) },
+                                        shape = RoundedCornerShape(4.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        border = BorderStroke(1.dp, Color(0xFFFFA726)),
+                                    ) {
+                                        Text("Snooze", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFFFFA726))
+                                    }
+                                    OutlinedButton(
+                                        onClick = { onRemoveTask(task) },
+                                        shape = RoundedCornerShape(4.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        border = BorderStroke(1.dp, Color(0xFFEF5350)),
+                                    ) {
+                                        Text("Remove", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFFEF5350))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

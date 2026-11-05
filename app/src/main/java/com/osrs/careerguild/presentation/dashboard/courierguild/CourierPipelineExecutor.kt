@@ -643,6 +643,7 @@ object CourierPipelineExecutor {
         tailoredResume: TailoredResume?,
         repos: List<GitHubRepo>,
         jobDescription: String,
+        profileGithub: String = "",
     ): List<FactItem> {
         val facts = mutableListOf<FactItem>()
         var idx = 1
@@ -657,9 +658,15 @@ object CourierPipelineExecutor {
         if (jobDescription.isNotBlank()) {
             addFact("Job Description", jobDescription.take(600))
         }
+        if (profileGithub.isNotBlank()) {
+            addFact("Profile:GitHub", "GitHub portfolio: $profileGithub.")
+        }
 
         val activeBase = baseResume?.activeOnly()
         if (activeBase != null) {
+            if (!activeBase.contact.github.isNullOrBlank()) {
+                addFact("BaseResume:GitHub", "GitHub portfolio: ${activeBase.contact.github}.")
+            }
             if (activeBase.skills.isNotEmpty()) {
                 addFact("BaseResume:Skills", "Core technical skills: ${activeBase.skills.joinToString(", ")}.")
             }
@@ -708,7 +715,8 @@ object CourierPipelineExecutor {
         profile: UserProfile,
         courierModel: CourierModel,
     ): String? {
-        val factSheet = buildFactSheet(task, baseResume, tailoredResume, repos, jobDescription)
+        val effectiveGithub = profile.github.ifBlank { baseResume?.contact?.github.orEmpty() }
+        val factSheet = buildFactSheet(task, baseResume, tailoredResume, repos, jobDescription, effectiveGithub)
         if (factSheet.isEmpty()) return null
 
         // Attempt 1 via CourierModel
@@ -720,8 +728,7 @@ object CourierPipelineExecutor {
             escalate = false,
         ).getOrNull()
 
-        if (firstAttempt != null) {
-            if (firstAttempt.unsupported) return null
+        if (firstAttempt != null && !firstAttempt.unsupported) {
             val verify1 = CourierAnswerVerifier.verify(firstAttempt, factSheet, maxLength)
             if (verify1.isValid) {
                 return firstAttempt.answer
@@ -740,7 +747,6 @@ object CourierPipelineExecutor {
                     return secondAttempt.answer
                 }
             }
-            return null
         }
 
         // Deterministic fallback via existing CourierResponseSynthesizer verified by CourierAnswerVerifier
@@ -748,7 +754,7 @@ object CourierPipelineExecutor {
             base = baseResume,
             company = task.company,
             title = task.title,
-            github = profile.github,
+            github = effectiveGithub,
             linkedin = baseResume?.contact?.linkedin.orEmpty(),
             phone = profile.phone,
             gender = profile.gender,
@@ -762,6 +768,9 @@ object CourierPipelineExecutor {
             unsupported = false,
         )
         val check = CourierAnswerVerifier.verify(syntheticResult, factSheet, maxLength)
+        if (!check.isValid) {
+            android.util.Log.w("CourierWorker", "Verifier rejected deterministic synthesis: ${check.violations}")
+        }
         return if (check.isValid) deterministicAnswer else null
     }
 

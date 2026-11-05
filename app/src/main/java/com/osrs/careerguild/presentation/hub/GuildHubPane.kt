@@ -57,7 +57,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
+import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -68,6 +70,9 @@ import com.osrs.careerguild.core.profile.UserProfile
 import com.osrs.careerguild.core.profile.UserProfileManager
 import com.osrs.careerguild.di.LocalAppContainer
 import com.osrs.careerguild.presentation.dashboard.scribetower.ModularResumeSectionsToggleCard
+import com.osrs.careerguild.presentation.dashboard.courierguild.CourierAutoApplyDispatcher
+import com.osrs.careerguild.presentation.dashboard.courierguild.CourierQuestOrb
+import com.osrs.careerguild.presentation.dashboard.courierguild.CourierCaptchaQuestModal
 import kotlinx.coroutines.launch
 import com.google.android.filament.Engine
 import com.google.android.filament.EntityManager
@@ -140,14 +145,41 @@ class CameraController(
     initialYaw: Float = (Math.PI * 0.25).toFloat(),
     initialPitch: Float = Math.toRadians(37.0).toFloat(),
     initialDistance: Float = 1.36f,
+    initialGlobalView: Boolean = true,
 ) {
     var yaw by mutableFloatStateOf(initialYaw)
     var pitch by mutableFloatStateOf(initialPitch)
     var distance by mutableFloatStateOf(initialDistance)
 
     var manipulator: Manipulator? = null
+    var defaultOrbitManipulator: Manipulator? = null
+
+    /** When set, the hub runs in avatar mode: zoom/reset/perspective act on the chase camera. */
+    var chaseCamera: ChaseCamera? = null
+    var isFirstPerson by mutableStateOf(false)
+    var isGlobalView by mutableStateOf(initialGlobalView)
     var viewportWidth: Int = 1080
     var viewportHeight: Int = 1080
+
+    /**
+     * Toggles between First Person (1P: camera at avatar eyes) and Third Person (3P: chase camera).
+     */
+    fun toggleFirstPerson() {
+        if (isGlobalView) {
+            isGlobalView = false
+        }
+        isFirstPerson = !isFirstPerson
+        chaseCamera?.isFirstPerson = isFirstPerson
+        android.util.Log.i("FilamentHub", "toggleFirstPerson: isFirstPerson=$isFirstPerson")
+    }
+
+    /**
+     * Toggles between Avatar View (1P/3P chase camera) and Global View (full citadel orbit).
+     */
+    fun toggleGlobalView() {
+        isGlobalView = !isGlobalView
+        android.util.Log.i("FilamentHub", "toggleGlobalView: isGlobalView=$isGlobalView")
+    }
 
     /**
      * Dial notch zoom step.
@@ -157,38 +189,56 @@ class CameraController(
     fun dialZoomStep(isZoomIn: Boolean) {
         val w = viewportWidth.coerceAtLeast(100)
         val h = viewportHeight.coerceAtLeast(100)
-        // Dial notch step delta
         val delta = if (isZoomIn) 18.0f else -18.0f
+        if (!isGlobalView && chaseCamera != null) {
+            chaseCamera?.adjustDistance(if (isZoomIn) -0.8f else 0.8f)
+            return
+        }
         android.util.Log.i("FilamentHub", "dialZoomStep: isZoomIn=$isZoomIn, delta=$delta, manip=${manipulator != null}")
         manipulator?.scroll(w / 2, h / 2, delta)
     }
 
     fun zoomIn() {
+        if (!isGlobalView && chaseCamera != null) {
+            chaseCamera?.adjustDistance(-0.8f)
+            return
+        }
         val w = viewportWidth.coerceAtLeast(100)
         val h = viewportHeight.coerceAtLeast(100)
         manipulator?.scroll(w / 2, h / 2, 20.0f)
     }
 
     fun zoomOut() {
+        if (!isGlobalView && chaseCamera != null) {
+            chaseCamera?.adjustDistance(0.8f)
+            return
+        }
         val w = viewportWidth.coerceAtLeast(100)
         val h = viewportHeight.coerceAtLeast(100)
         manipulator?.scroll(w / 2, h / 2, -20.0f)
     }
 
+    fun onDrag(dxPx: Float, dyPx: Float) {
+        val cam = chaseCamera
+        if (!isGlobalView && cam != null) {
+            cam.onDrag(dxPx, dyPx)
+            yaw = cam.yaw
+            pitch = cam.pitch
+        }
+    }
+
     fun reset() {
+        if (!isGlobalView && chaseCamera != null) {
+            chaseCamera?.reset()
+            return
+        }
         manipulator?.homeBookmark?.let {
             manipulator?.jumpToBookmark(it)
         }
     }
 
     fun cyclePerspective() {
-        val manip = manipulator ?: return
-        val w = viewportWidth.coerceAtLeast(100)
-        val h = viewportHeight.coerceAtLeast(100)
-        // Orbit rotate perspective by 90 degrees horizontally and slight pitch elevation
-        manip.grabBegin(w / 2, h / 2, false)
-        manip.grabUpdate(w / 2 + (w * 0.25f).toInt(), h / 2 - (h * 0.08f).toInt())
-        manip.grabEnd()
+        toggleGlobalView()
     }
 }
 
@@ -199,7 +249,15 @@ fun GuildHubPane(
     modifier: Modifier = Modifier,
 ) {
     val cameraController = remember { CameraController() }
+    val avatarController = remember {
+        AvatarController().also {
+            cameraController.chaseCamera = it.camera
+            it.camera.isFirstPerson = cameraController.isFirstPerson
+        }
+    }
     var showSettingsModal by remember { mutableStateOf(false) }
+    val courierQuest by CourierAutoApplyDispatcher.activeQuest.collectAsState()
+    var showCourierQuestModal by remember { mutableStateOf(false) }
     var billboardPositions by remember { mutableStateOf<Map<GuildBuilding, Pair<Float, Float>>>(emptyMap()) }
     var nimbusPosition by remember { mutableStateOf<Pair<Float, Float>?>(null) }
     var characterDialogues by remember { mutableStateOf<List<FloatingCharacterDialogue>>(emptyList()) }
@@ -213,6 +271,7 @@ fun GuildHubPane(
         FilamentLivingTown(
             cameraController = cameraController,
             onBuildingSelected = onBuildingSelected,
+            avatarController = avatarController,
             onNimbusTapped = { showSettingsModal = true },
             onUpdateBuildingBillboards = { billboardPositions = it },
             onUpdateNimbusBillboard = { nimbusPosition = it },
@@ -228,6 +287,83 @@ fun GuildHubPane(
             onNimbusTapped = { showSettingsModal = true },
             modifier = Modifier.fillMaxSize(),
         )
+
+        // instruction.md §6: Global View Quest Notification: Glowing orange Dragon Ball '!' orb floating above exterior Courier Guild building
+        if (cameraController.isGlobalView && courierQuest != null) {
+            billboardPositions[GuildBuilding.COURIER_GUILD]?.let { (screenX, screenY) ->
+                val density = LocalDensity.current
+                val orbDpX = with(density) { screenX.toDp() }
+                val orbDpY = with(density) { screenY.toDp() }
+                CourierQuestOrb(
+                    onClick = { showCourierQuestModal = true },
+                    modifier = Modifier
+                        .offset(x = orbDpX - 32.dp, y = (orbDpY - 84.dp).coerceAtLeast(16.dp)),
+                )
+            }
+        }
+
+        if (showCourierQuestModal && courierQuest != null) {
+            val q = courierQuest!!
+            val hubContext = LocalContext.current
+            val hubContainer = LocalAppContainer.current
+            val hubScope = rememberCoroutineScope()
+            CourierCaptchaQuestModal(
+                quest = q,
+                onCompleteCaptcha = {
+                    if (q.appId.isNotBlank()) {
+                        CourierAutoApplyDispatcher.openTakeover(q.appId)
+                    }
+                    CourierAutoApplyDispatcher.clearQuest()
+                    showCourierQuestModal = false
+                    onBuildingSelected(GuildBuilding.COURIER_GUILD)
+                },
+                onLeaveIt = {
+                    if (q.appId.isNotBlank()) {
+                        CourierAutoApplyDispatcher.cancelWorker(hubContext, q.appId)
+                        hubScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            val existing = hubContainer.courierTaskDao.getById(q.appId)
+                            if (existing != null) {
+                                val cancelled = com.osrs.careerguild.presentation.dashboard.courierguild.CourierStateMachine.transition(
+                                    task = existing,
+                                    targetStatus = com.osrs.careerguild.presentation.dashboard.courierguild.CourierTaskStatus.CANCELLED,
+                                    step = "CANCELLED_BY_USER",
+                                )
+                                hubContainer.courierTaskDao.upsert(cancelled)
+                            }
+                        }
+                    }
+                    CourierAutoApplyDispatcher.clearQuest()
+                    showCourierQuestModal = false
+                },
+                onSnooze = {
+                    if (q.appId.isNotBlank()) {
+                        val snoozeDurationMs = com.osrs.careerguild.presentation.dashboard.courierguild.CourierStateMachine.DEFAULT_SNOOZE_DURATION_MS
+                        val snoozedUntil = System.currentTimeMillis() + snoozeDurationMs
+                        hubScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            val existing = hubContainer.courierTaskDao.getById(q.appId)
+                            if (existing != null) {
+                                val snoozed = com.osrs.careerguild.presentation.dashboard.courierguild.CourierStateMachine.transition(
+                                    task = existing,
+                                    targetStatus = com.osrs.careerguild.presentation.dashboard.courierguild.CourierTaskStatus.SNOOZED,
+                                    step = "SNOOZED_BY_USER",
+                                    snoozedUntil = snoozedUntil,
+                                )
+                                hubContainer.courierTaskDao.upsert(snoozed)
+                                com.osrs.careerguild.presentation.dashboard.courierguild.CourierQueueWorker.enqueueTask(
+                                    context = hubContext,
+                                    taskId = q.appId,
+                                    initialDelayMs = snoozeDurationMs,
+                                    replaceExisting = true,
+                                )
+                            }
+                        }
+                    }
+                    CourierAutoApplyDispatcher.clearQuest()
+                    showCourierQuestModal = false
+                },
+                onDismiss = { showCourierQuestModal = false },
+            )
+        }
 
         // 2b. 3D Floating Character Dialogue Bubbles (Manga speech bubbles tracking Goku, Vegeta & Beerus)
         FloatingCharacterDialogues(
@@ -254,6 +390,24 @@ fun GuildHubPane(
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, bottom = 80.dp),
         )
+
+        // Reset active stick motion when switching into Global View
+        LaunchedEffect(cameraController.isGlobalView) {
+            if (cameraController.isGlobalView) {
+                avatarController.stickX = 0f
+                avatarController.stickY = 0f
+            }
+        }
+
+        // 4b. Avatar joystick (bottom-left): X turns, Y walks. Hidden in Global View.
+        if (!cameraController.isGlobalView) {
+            AvatarJoystick(
+                onChange = { x, y -> avatarController.stickX = x; avatarController.stickY = y },
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 24.dp, bottom = 96.dp),
+            )
+        }
 
         // 5. Main Settings / Configuration Tab (Triggered by Kid Gohan riding the Flying Nimbus)
         if (showSettingsModal) {
@@ -465,6 +619,11 @@ private fun CameraControlsToolbar(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            // First Person (1P) / Third Person (3P) Mode Toggle Button
+            CameraModeToggleButton(
+                isFirstPerson = cameraController.isFirstPerson,
+                onToggle = { cameraController.toggleFirstPerson() },
+            )
             // Directive: '+' zooms out and '-' zooms in, holding down slow-zooms like a dial
             CameraDialZoomButton(
                 text = "+",
@@ -482,14 +641,48 @@ private fun CameraControlsToolbar(
                 onClick = { cameraController.reset() },
             )
             CameraControlButton(
-                text = "👁",
-                contentDescription = "Cycle Perspective",
+                text = if (cameraController.isGlobalView) "🌐" else "👁",
+                contentDescription = if (cameraController.isGlobalView) "Global Orbit View Active · Tap to return to Avatar View" else "Avatar View Active · Tap for Global Orbit View",
+                highlighted = cameraController.isGlobalView,
                 onClick = { cameraController.cyclePerspective() },
             )
             CameraControlButton(
                 text = "☁️",
                 contentDescription = "Profile & Resume Settings (Kid Gohan)",
                 onClick = onOpenSettings,
+            )
+        }
+    }
+}
+
+/**
+ * Mode toggle button switching between First Person (1P: camera at avatar eyes)
+ * and Third Person (3P: chase camera behind avatar).
+ */
+@Composable
+private fun CameraModeToggleButton(
+    isFirstPerson: Boolean,
+    onToggle: () -> Unit,
+) {
+    Surface(
+        onClick = onToggle,
+        shape = RoundedCornerShape(10.dp),
+        color = if (isFirstPerson) Color(0xFF003847) else OsrsStone,
+        border = BorderStroke(
+            1.5.dp,
+            if (isFirstPerson) Color(0xFF00E5FF) else OsrsGold.copy(alpha = 0.8f)
+        ),
+        modifier = Modifier.size(46.dp),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Text(
+                text = if (isFirstPerson) "1P" else "3P",
+                color = if (isFirstPerson) Color(0xFF00E5FF) else OsrsGold,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
             )
         }
     }
@@ -549,12 +742,13 @@ private fun CameraDialZoomButton(
 private fun CameraControlButton(
     text: String,
     contentDescription: String,
+    highlighted: Boolean = false,
     onClick: () -> Unit,
 ) {
     Surface(
         shape = RoundedCornerShape(10.dp),
-        color = OsrsStone,
-        border = BorderStroke(1.5.dp, OsrsGold.copy(alpha = 0.8f)),
+        color = if (highlighted) Color(0xFF003847) else OsrsStone,
+        border = BorderStroke(1.5.dp, if (highlighted) Color(0xFF00E5FF) else OsrsGold.copy(alpha = 0.8f)),
         modifier = Modifier
             .size(46.dp)
             .clickable(onClick = onClick),
@@ -565,7 +759,7 @@ private fun CameraControlButton(
         ) {
             Text(
                 text = text,
-                color = OsrsGold,
+                color = if (highlighted) Color(0xFF00E5FF) else OsrsGold,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
             )
@@ -630,6 +824,7 @@ private fun FilamentLivingTown(
     onBuildingSelected: (GuildBuilding) -> Unit,
     onNimbusTapped: () -> Unit,
     onUpdateBuildingBillboards: (Map<GuildBuilding, Pair<Float, Float>>) -> Unit,
+    avatarController: AvatarController? = null,
     onUpdateNimbusBillboard: (Pair<Float, Float>?) -> Unit = {},
     onUpdateCharacterDialogues: (List<FloatingCharacterDialogue>) -> Unit,
     modifier: Modifier = Modifier,
@@ -648,6 +843,7 @@ private fun FilamentLivingTown(
                     .orbitSpeed(0.005f, 0.005f)
                     .build(Manipulator.Mode.ORBIT)
 
+                cameraController.defaultOrbitManipulator = manipulator
                 cameraController.manipulator = manipulator
 
                 val viewer = ModelViewer(
@@ -699,6 +895,13 @@ private fun FilamentLivingTown(
                 val viewMatrix = FloatArray(16)
                 val projMatrix = DoubleArray(16)
                 val rootTransform = FloatArray(16)
+
+                // Cached entity IDs for direct-mesh raycast picking
+                var bountyBoardEntity = 0
+                var scribeTowerEntity = 0
+                var skillAltarEntity = 0
+                var courierGuildEntity = 0
+                var nimbusEntity = 0
 
                 // Animated positions for Nimbus (Kid Gohan) and fighting Saiyans / Beerus
                 var lastNimbusX = 0f
@@ -799,6 +1002,9 @@ private fun FilamentLivingTown(
 
                 var downX = 0f
                 var downY = 0f
+                var lastTouchX = 0f
+                var lastTouchY = 0f
+                var pinchDistStart = 0f
                 var isTapCandidate = false
 
                 setOnTouchListener { _, event ->
@@ -810,7 +1016,18 @@ private fun FilamentLivingTown(
                         MotionEvent.ACTION_DOWN -> {
                             downX = event.x
                             downY = event.y
+                            lastTouchX = event.x
+                            lastTouchY = event.y
                             isTapCandidate = true
+                        }
+                        MotionEvent.ACTION_POINTER_DOWN -> {
+                            if (event.pointerCount == 2) {
+                                isTapCandidate = false
+                                pinchDistStart = kotlin.math.hypot(
+                                    event.getX(0) - event.getX(1),
+                                    event.getY(0) - event.getY(1)
+                                )
+                            }
                         }
                         MotionEvent.ACTION_MOVE -> {
                             val dist = kotlin.math.hypot(event.x - downX, event.y - downY)
@@ -821,15 +1038,87 @@ private fun FilamentLivingTown(
                         MotionEvent.ACTION_UP -> {
                             if (isTapCandidate) {
                                 val dist = kotlin.math.hypot(event.x - downX, event.y - downY)
-                                if (dist <= 25f) {
-                                    handle3dTap(event.x, event.y)
+                                if (dist <= 25f && width > 0 && height > 0) {
+                                    val tapX = event.x.toInt().coerceIn(0, width - 1)
+                                    val tapY = (height - 1 - event.y.toInt()).coerceIn(0, height - 1)
+                                    val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+                                    viewer.view.pick(tapX, tapY, mainHandler) { result ->
+                                        val pickedEntity = result.renderable
+                                        val asset = viewer.asset
+                                        val pickedName = if (pickedEntity != 0 && asset != null) asset.getName(pickedEntity) else null
+                                        android.util.Log.i(
+                                            "FilamentHub",
+                                            "Filament pick at ($tapX, $tapY): entity=$pickedEntity, name='$pickedName', depth=${result.depth}"
+                                        )
+                                        if (bountyBoardEntity == 0 && asset != null) {
+                                            bountyBoardEntity = asset.getFirstEntityByName("BountyBoard")
+                                            scribeTowerEntity = asset.getFirstEntityByName("ScribeTower")
+                                            skillAltarEntity = asset.getFirstEntityByName("SkillAltar")
+                                            courierGuildEntity = asset.getFirstEntityByName("CourierGuild")
+                                            nimbusEntity = asset.getFirstEntityByName("Nimbus")
+                                        }
+                                        val building = when {
+                                            (bountyBoardEntity != 0 && pickedEntity == bountyBoardEntity) ||
+                                                pickedName == "BountyBoard" || pickedName?.startsWith("BountyBoard") == true ->
+                                                GuildBuilding.BOUNTY_BOARD
+                                            (scribeTowerEntity != 0 && pickedEntity == scribeTowerEntity) ||
+                                                pickedName == "ScribeTower" || pickedName?.startsWith("ScribeTower") == true ->
+                                                GuildBuilding.SCRIBE_TOWER
+                                            (skillAltarEntity != 0 && pickedEntity == skillAltarEntity) ||
+                                                pickedName == "SkillAltar" || pickedName?.startsWith("SkillAltar") == true ->
+                                                GuildBuilding.SKILL_ALTAR
+                                            (courierGuildEntity != 0 && pickedEntity == courierGuildEntity) ||
+                                                pickedName == "CourierGuild" || pickedName?.startsWith("CourierGuild") == true ->
+                                                GuildBuilding.COURIER_GUILD
+                                            else -> null
+                                        }
+                                        if (building != null) {
+                                            android.util.Log.i("FilamentHub", "Direct-mesh tap raycast picked $building. Navigating.")
+                                            onBuildingSelected(building)
+                                        } else if ((nimbusEntity != 0 && pickedEntity == nimbusEntity) ||
+                                            pickedName == "Nimbus" || pickedName?.startsWith("Nimbus") == true) {
+                                            android.util.Log.i("FilamentHub", "Direct-mesh tap raycast picked Nimbus. Triggering Settings.")
+                                            onNimbusTapped()
+                                        } else {
+                                            // Fallback to geometric projection if pick didn't hit a named mesh node directly
+                                            handle3dTap(downX, downY)
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
 
-                    // Forward drag-to-rotate and pinch-to-zoom to ModelViewer's native manipulator
-                    viewer.onTouchEvent(event)
+                    val isGlobal = cameraController.isGlobalView
+                    val avatarCam = avatarController?.camera
+                    if (!isGlobal && avatarCam != null) {
+                        // Roblox-style camera control: dragging rotates camera yaw and pitch smoothly
+                        if (event.actionMasked == MotionEvent.ACTION_MOVE) {
+                            if (event.pointerCount == 1 && !isTapCandidate) {
+                                val dxPx = event.x - lastTouchX
+                                val dyPx = event.y - lastTouchY
+                                cameraController.onDrag(dxPx, dyPx)
+                            } else if (event.pointerCount == 2) {
+                                val currentDist = kotlin.math.hypot(
+                                    event.getX(0) - event.getX(1),
+                                    event.getY(0) - event.getY(1)
+                                )
+                                val pinchDelta = currentDist - pinchDistStart
+                                if (kotlin.math.abs(pinchDelta) > 8f) {
+                                    avatarCam.adjustDistance(-pinchDelta * 0.012f)
+                                    pinchDistStart = currentDist
+                                }
+                            }
+                        }
+                    } else {
+                        // Global View or free orbit: Forward drag-to-rotate and pinch-to-zoom to ModelViewer's native manipulator
+                        viewer.onTouchEvent(event)
+                    }
+
+                    if (event.actionMasked == MotionEvent.ACTION_MOVE) {
+                        lastTouchX = event.x
+                        lastTouchY = event.y
+                    }
                     true
                 }
 
@@ -847,6 +1136,21 @@ private fun FilamentLivingTown(
                 var finalFlashInst = 0
                 var clashInst = 0
                 var spiritBombInst = 0
+
+                // Avatar navigation state (private ModelViewer.cameraManipulator is swapped to drive the chase camera)
+                var avatarInst = 0
+                var wasGlobalView = false
+                var walkAnimIndex = -2 // -2 = not resolved yet, -1 = clip missing
+                var lastAvatarFrameNanos = 0L
+                val camPose = FloatArray(6)
+                val lastCamPose = FloatArray(6) { 1.0e6f }
+                var cameraManipulatorField: java.lang.reflect.Field? = if (avatarController != null) {
+                    runCatching {
+                        ModelViewer::class.java.getDeclaredField("cameraManipulator").apply { isAccessible = true }
+                    }.onFailure {
+                        android.util.Log.w("FilamentHub", "Chase camera unavailable (cameraManipulator not found): ${it.message}")
+                    }.getOrNull()
+                } else null
 
                 // Continuous 120Hz render loop with dynamic multi-perspective camera & living DBZ battle animations
                 val choreographer = Choreographer.getInstance()
@@ -916,7 +1220,12 @@ private fun FilamentLivingTown(
                             if (!entitiesInitialized && viewer.asset != null) {
                                 val asset = viewer.asset!!
                                 val n = asset.getFirstEntityByName("Nimbus")
+                                nimbusEntity = n
                                 if (n != 0) nimbusInst = tm.getInstance(n)
+                                bountyBoardEntity = asset.getFirstEntityByName("BountyBoard")
+                                scribeTowerEntity = asset.getFirstEntityByName("ScribeTower")
+                                skillAltarEntity = asset.getFirstEntityByName("SkillAltar")
+                                courierGuildEntity = asset.getFirstEntityByName("CourierGuild")
                                 val g = asset.getFirstEntityByName("SaiyanGoku")
                                 if (g != 0) gokuInst = tm.getInstance(g)
                                 val v = asset.getFirstEntityByName("SaiyanVegeta")
@@ -1467,6 +1776,102 @@ private fun FilamentLivingTown(
                                     android.util.Log.i("FilamentHub", "Updated character dialogues: ${newDialogues.map { "${it.speakerName}: ${it.text} at (${it.screenX}, ${it.screenY})" }}")
                                     onUpdateCharacterDialogues(newDialogues)
                                 }
+                            }
+
+                            // Avatar-centric navigation vs Global Orbit View
+                            if (avatarController != null && viewer.asset != null) {
+                                val isGlobal = cameraController.isGlobalView
+                                if (isGlobal != wasGlobalView) {
+                                    wasGlobalView = isGlobal
+                                    if (isGlobal) {
+                                        try {
+                                            val orbit = cameraController.defaultOrbitManipulator ?: Manipulator.Builder()
+                                                .viewport(width, height)
+                                                .targetPosition(0.0f, 0.0f, 0.0f)
+                                                .orbitHomePosition(0.85f, 0.65f, 0.85f)
+                                                .zoomSpeed(0.12f)
+                                                .orbitSpeed(0.005f, 0.005f)
+                                                .build(Manipulator.Mode.ORBIT)
+                                            cameraManipulatorField?.set(viewer, orbit)
+                                            cameraController.manipulator = orbit
+                                            android.util.Log.i("FilamentHub", "Global View: default orbit manipulator restored")
+                                        } catch (t: Throwable) {
+                                            android.util.Log.w("FilamentHub", "Global View: could not restore orbit manipulator: ${t.message}")
+                                        }
+                                    } else {
+                                        // Returning to Avatar View: reset cached pose so chase camera re-attaches cleanly
+                                        lastCamPose.fill(1.0e6f)
+                                        android.util.Log.i("FilamentHub", "Avatar View: re-attaching chase camera")
+                                    }
+                                }
+
+                                val dt = if (lastAvatarFrameNanos == 0L) 0.016f
+                                    else ((frameTimeNanos - lastAvatarFrameNanos) / 1_000_000_000f)
+                                lastAvatarFrameNanos = frameTimeNanos
+                                val hit = avatarController.update(dt)
+                                if (avatarInst == 0) {
+                                    val a = viewer.asset!!.getFirstEntityByName("Avatar")
+                                    if (a != 0) avatarInst = tm.getInstance(a)
+                                }
+                                // Walk animation: grab Filament's Animator from the loaded asset, find the "Walk"
+                                // clip once, and drive its time from the joystick (loop while stick is active,
+                                // settle to the idle/rest pose when it returns to the deadzone). ModelViewer
+                                // auto-plays animation 0 ("Idle", an inert dummy clip), so it never fights us.
+                                val animator = viewer.animator
+                                if (animator != null) {
+                                    if (walkAnimIndex == -2) {
+                                        walkAnimIndex = (0 until animator.animationCount)
+                                            .firstOrNull { animator.getAnimationName(it) == WalkCycle.WALK_ANIMATION_NAME } ?: -1
+                                        android.util.Log.i("FilamentHub", "Avatar Walk clip index=$walkAnimIndex of ${animator.animationCount}")
+                                    }
+                                    if (walkAnimIndex >= 0) {
+                                        animator.applyAnimation(walkAnimIndex, avatarController.walkCycle.time)
+                                        animator.updateBoneMatrices()
+                                    }
+                                }
+                                if (avatarInst != 0) {
+                                    if (avatarController.camera.isFirstPerson && !isGlobal) {
+                                        // First person in avatar view: scale avatar to 0 so its head/shoulders never occlude view
+                                        tm.setTransform(
+                                            avatarInst,
+                                            makeScaledTransformMatrix(avatarController.x, AvatarWorld.GROUND_Y, avatarController.z, 0.0f)
+                                        )
+                                    } else {
+                                        tm.setTransform(
+                                            avatarInst,
+                                            avatarTransform(avatarController.x, AvatarWorld.GROUND_Y, avatarController.z, avatarController.heading)
+                                        )
+                                    }
+                                }
+                                if (!isGlobal && w > 0f && h > 0f) {
+                                    avatarController.camera.pose(avatarController.x, avatarController.z, camPose)
+                                    // local -> world through the asset root (unit-cube) transform
+                                    fun wx(x: Float, y: Float, z: Float) = rootTransform[0]*x + rootTransform[4]*y + rootTransform[8]*z + rootTransform[12]
+                                    fun wy(x: Float, y: Float, z: Float) = rootTransform[1]*x + rootTransform[5]*y + rootTransform[9]*z + rootTransform[13]
+                                    fun wz(x: Float, y: Float, z: Float) = rootTransform[2]*x + rootTransform[6]*y + rootTransform[10]*z + rootTransform[14]
+                                    val ex = wx(camPose[0], camPose[1], camPose[2]); val ey = wy(camPose[0], camPose[1], camPose[2]); val ez = wz(camPose[0], camPose[1], camPose[2])
+                                    val tx = wx(camPose[3], camPose[4], camPose[5]); val ty = wy(camPose[3], camPose[4], camPose[5]); val tz = wz(camPose[3], camPose[4], camPose[5])
+                                    val moved = kotlin.math.abs(ex - lastCamPose[0]) + kotlin.math.abs(ey - lastCamPose[1]) + kotlin.math.abs(ez - lastCamPose[2]) +
+                                        kotlin.math.abs(tx - lastCamPose[3]) + kotlin.math.abs(ty - lastCamPose[4]) + kotlin.math.abs(tz - lastCamPose[5])
+                                    if (moved > 1e-5f && cameraManipulatorField != null) {
+                                        try {
+                                            val chase = Manipulator.Builder()
+                                                .viewport(width, height)
+                                                .targetPosition(tx, ty, tz)
+                                                .orbitHomePosition(ex, ey, ez)
+                                                .zoomSpeed(0.0f)
+                                                .build(Manipulator.Mode.ORBIT)
+                                            cameraManipulatorField!!.set(viewer, chase)
+                                            cameraController.manipulator = chase
+                                            lastCamPose[0] = ex; lastCamPose[1] = ey; lastCamPose[2] = ez
+                                            lastCamPose[3] = tx; lastCamPose[4] = ty; lastCamPose[5] = tz
+                                        } catch (t: Throwable) {
+                                            android.util.Log.w("FilamentHub", "Chase camera swap failed: ${t.message}")
+                                            cameraManipulatorField = null
+                                        }
+                                    }
+                                }
+
                             }
 
                             viewer.render(frameTimeNanos)

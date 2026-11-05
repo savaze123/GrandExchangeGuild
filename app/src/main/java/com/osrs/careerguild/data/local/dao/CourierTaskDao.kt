@@ -26,6 +26,9 @@ interface CourierTaskDao {
     @Query("SELECT * FROM courier_task WHERE job_id = :jobId ORDER BY created_at DESC")
     suspend fun getByJobId(jobId: String): List<CourierTaskEntity>
 
+    @Query("SELECT COUNT(*) FROM courier_task WHERE job_id = :jobId AND status NOT IN ('CANCELLED', 'FAILED')")
+    suspend fun countOpenOrSubmittedForJob(jobId: String): Int
+
     @Query(
         "SELECT * FROM courier_task " +
             "WHERE status = 'QUEUED' " +

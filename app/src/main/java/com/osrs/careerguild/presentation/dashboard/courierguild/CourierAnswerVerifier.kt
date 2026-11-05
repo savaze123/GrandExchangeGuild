@@ -55,12 +55,14 @@ object CourierAnswerVerifier {
     )
 
     private val ALLOWED_SENTENCE_STARTERS = setOf(
+        "i", "i'm", "i'd", "i've", "i'll", "it", "it's", "you", "you're", "we", "there", "here",
+        "as", "at", "on", "to", "by", "of", "an", "a", "github", "linkedin",
         "the", "in", "my", "one", "recently", "during", "while", "when", "since", "thank", "thanks",
         "dear", "much", "day", "also", "with", "from", "for", "this", "that", "these", "those",
         "after", "before", "currently", "working", "building", "having", "always", "through",
         "over", "across", "because", "although", "whether", "specifically", "additionally",
         "furthermore", "moreover", "overall", "throughout", "alongside", "contributing", "developing",
-        "engineering", "designing", "shipping", "learning", "Collaborating".lowercase(), "excited", "grateful"
+        "engineering", "designing", "shipping", "learning", "collaborating", "excited", "grateful"
     )
 
     fun verify(

@@ -140,7 +140,11 @@ class CourierQueueWorker(
     ): Result {
         val taskDao = container.courierTaskDao
         val webHost = container.courierWebHost
-        var task = initialTask
+        var task = if (CourierTaskStatus.fromString(initialTask.status) != CourierTaskStatus.QUEUED) {
+            initialTask.copy(status = CourierTaskStatus.QUEUED.name)
+        } else {
+            initialTask
+        }
         val filledFields = parseFilledFieldsMap(task.filledFieldsJson)
 
         // -------------------------------------------------------------------
