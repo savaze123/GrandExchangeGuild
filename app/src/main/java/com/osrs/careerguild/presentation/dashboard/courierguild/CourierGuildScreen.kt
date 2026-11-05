@@ -150,6 +150,8 @@ data class QueuedApplication(
     val allowAutoSubmit: Boolean = false,
     val forgeTaskId: String? = null,
     val missingFields: List<String> = emptyList(),
+    val blockedReason: String? = null,
+    val courierStep: String? = null,
 )
 
 /**
@@ -194,6 +196,9 @@ fun CourierGuildScreen(
     androidx.compose.runtime.LaunchedEffect(persistedTasks) {
         for (task in persistedTasks) {
             if (applications.none { it.id == task.jobId || it.forgeTaskId == task.taskId }) {
+                val taskStatus = CourierTaskStatus.fromString(task.status)
+                val uiStatus = CourierStateMachine.toUiApplicationStatus(taskStatus)
+                val blockedList = parseBlockedFieldsJson(task.blockedFieldsJson)
                 applications.add(
                     QueuedApplication(
                         id = task.jobId,
@@ -202,15 +207,12 @@ fun CourierGuildScreen(
                         platform = task.ats.replaceFirstChar { it.uppercase() },
                         atsUrl = task.jobUrl,
                         attachedPdf = task.resumePdfPath?.substringAfterLast("/")?.ifBlank { "resume.pdf" } ?: "resume.pdf",
-                        status = when (task.status) {
-                            CourierTaskStatus.QUEUED.name -> ApplicationStatus.QUEUED
-                            CourierTaskStatus.FORGING.name, CourierTaskStatus.NAVIGATING.name, CourierTaskStatus.FILLING.name -> ApplicationStatus.IN_TRANSIT
-                            CourierTaskStatus.SUBMITTING.name, CourierTaskStatus.SUBMITTED.name -> ApplicationStatus.SUBMITTED
-                            CourierTaskStatus.BLOCKED_NEEDS_INPUT.name, CourierTaskStatus.AWAITING_REVIEW.name, CourierTaskStatus.SNOOZED.name -> ApplicationStatus.AWAITING_REVIEW
-                            else -> ApplicationStatus.QUEUED
-                        },
+                        status = uiStatus,
                         allowAutoSubmit = task.submitPolicy.equals("AUTO_SUBMIT", ignoreCase = true),
                         forgeTaskId = task.taskId,
+                        missingFields = blockedList,
+                        blockedReason = task.blockedReason,
+                        courierStep = task.step,
                     )
                 )
             }
@@ -346,23 +348,43 @@ fun CourierGuildScreen(
     // Sync live Room courier_task status & blocked fields back to the in-memory ledger cards
     LaunchedEffect(persistedTasks) {
         for (task in persistedTasks) {
-            val idx = applications.indexOfFirst { it.id == task.jobId }
+            val idx = applications.indexOfFirst { it.id == task.jobId || it.forgeTaskId == task.taskId }
             if (idx != -1) {
                 val taskStatus = CourierTaskStatus.fromString(task.status)
                 val uiStatus = CourierStateMachine.toUiApplicationStatus(taskStatus)
                 val blockedList = parseBlockedFieldsJson(task.blockedFieldsJson)
-                if (applications[idx].status != uiStatus || applications[idx].missingFields != blockedList) {
+                if (applications[idx].status != uiStatus ||
+                    applications[idx].missingFields != blockedList ||
+                    applications[idx].blockedReason != task.blockedReason ||
+                    applications[idx].forgeTaskId != task.taskId ||
+                    applications[idx].courierStep != task.step
+                ) {
                     applications[idx] = applications[idx].copy(
                         status = uiStatus,
                         missingFields = blockedList,
                         forgeTaskId = task.taskId,
+                        blockedReason = task.blockedReason,
+                        courierStep = task.step,
                     )
                 }
             }
         }
     }
 
-    fun queueForForge(app: QueuedApplication) {
+    fun dispatchCourier(app: QueuedApplication) {
+        if (CourierAutoApplyDispatcher.isExcludedFromAutoApply(app)) {
+            val breakdown = CourierAgentConfig.ExecutionBreakdown(
+                status = "BLOCKED_MANUAL_ONLY",
+                atsPlatformDetected = "LinkedIn",
+                mappingLog = emptyList(),
+                unmappedAmbiguousFields = listOf("LinkedIn Portal (Excluded by Anti-Ban Policy)"),
+                failureAnalysisAndUpgradePath = "LinkedIn listings are excluded from automated DOM injection. Routed user to external browser tab.",
+            )
+            breakdown.toConsoleLines(app.company).reversed().forEach { appendConsoleLog(it) }
+            CourierAutoApplyDispatcher.routeToExternalManualApply(context, app.atsUrl)
+            return
+        }
+
         coroutineScope.launch {
             // Task 4 / Phase 4.3: Duplicate guard: never queue the same job_id twice while a task for it is open or submitted
             val dbOpenCount = withContext(Dispatchers.IO) {
@@ -381,120 +403,127 @@ fun CourierGuildScreen(
                 return@launch
             }
 
-            // Strictly load the user's actual BaseResume and UserProfileManager data from the database
-            val profile = profileManager.profile.value
-            val rawBase = withContext(Dispatchers.IO) {
-                appContainer.baseResumeRepository.getBaseResume()
-            } ?: baseResume
-            if (rawBase == null) {
-                val reason = "Cannot queue for Forge: Master Base Resume has not been loaded. Upload your resume in Scribe Tower first."
-                appendConsoleLog("❌ $reason")
-                Toast.makeText(context, reason, Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            val base = rawBase.withUserProfile(profile)
-            val repos = withContext(Dispatchers.IO) {
-                appContainer.gitHubRepoDao.getAll().map { it.toDomain() }
-            }
-            val jobListing = withContext(Dispatchers.IO) {
-                appContainer.jobRepository.getJobById(app.id)
-            }
-            val jobDescription = jobListing?.description.orEmpty().ifBlank { "${app.title} at ${app.company}" }
-
-            // Load existing TailoredResume for this job or tailor fresh from the user's actual BaseResume
-            val tailored = withContext(Dispatchers.IO) {
-                val existing = appContainer.tailoredResumeStore.getTailoredResume(app.id)?.copy(contact = base.contact)
-                if (existing != null && ResumeVerifier.verify(existing, base.activeOnly(), repos).isValid) {
-                    appContainer.tailoredResumeStore.saveTailoredResume(app.id, existing)
-                    existing
-                } else {
-                    val freshlyTailored = appContainer.resumeTailor.tailor(jobDescription, base, repos, profile)
-                    appContainer.tailoredResumeStore.saveTailoredResume(app.id, freshlyTailored)
-                    freshlyTailored
+            activeDispatchId = app.id
+            try {
+                // Strictly load the user's actual BaseResume and UserProfileManager data from the database
+                val profile = profileManager.profile.value
+                val rawBase = withContext(Dispatchers.IO) {
+                    appContainer.baseResumeRepository.getBaseResume()
+                } ?: baseResume
+                if (rawBase == null) {
+                    val reason = "Cannot dispatch Courier: Master Base Resume has not been loaded. Upload your resume in Scribe Tower first."
+                    appendConsoleLog("❌ $reason")
+                    Toast.makeText(context, reason, Toast.LENGTH_SHORT).show()
+                    return@launch
                 }
-            }
+                val base = rawBase.withUserProfile(profile)
+                val repos = withContext(Dispatchers.IO) {
+                    appContainer.gitHubRepoDao.getAll().map { it.toDomain() }
+                }
+                val jobListing = withContext(Dispatchers.IO) {
+                    appContainer.jobRepository.getJobById(app.id)
+                }
+                val jobDescription = jobListing?.description.orEmpty().ifBlank { "${app.title} at ${app.company}" }
 
-            val verification = ResumeVerifier.verify(tailored, base.activeOnly(), repos)
-            if (!verification.isValid) {
-                val violationList = verification.violations.joinToString("; ")
-                val reason = "Cannot queue for Forge: Resume verification failed: $violationList"
-                appendConsoleLog("❌ $reason")
-                Toast.makeText(context, reason, Toast.LENGTH_LONG).show()
-                return@launch
-            }
+                // Load existing TailoredResume for this job or tailor fresh from the user's actual BaseResume
+                val tailored = withContext(Dispatchers.IO) {
+                    val existing = appContainer.tailoredResumeStore.getTailoredResume(app.id)?.copy(contact = base.contact)
+                    if (existing != null && ResumeVerifier.verify(existing, base.activeOnly(), repos).isValid) {
+                        appContainer.tailoredResumeStore.saveTailoredResume(app.id, existing)
+                        existing
+                    } else {
+                        val freshlyTailored = appContainer.resumeTailor.tailor(jobDescription, base, repos, profile)
+                        appContainer.tailoredResumeStore.saveTailoredResume(app.id, freshlyTailored)
+                        freshlyTailored
+                    }
+                }
 
-            // Generate PDF on Dispatchers.IO to prevent main-thread disk I/O
-            val pdfForgeRes = withContext(Dispatchers.IO) {
-                ResumeForgePdfGenerator.forgeAtsResume(
-                    context = context,
+                val verification = ResumeVerifier.verify(tailored, base.activeOnly(), repos)
+                if (!verification.isValid) {
+                    val violationList = verification.violations.joinToString("; ")
+                    val reason = "Cannot dispatch Courier: Resume verification failed: $violationList"
+                    appendConsoleLog("❌ $reason")
+                    Toast.makeText(context, reason, Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+
+                // Generate PDF on Dispatchers.IO to prevent main-thread disk I/O
+                val pdfForgeRes = withContext(Dispatchers.IO) {
+                    ResumeForgePdfGenerator.forgeAtsResume(
+                        context = context,
+                        tailoredResume = tailored,
+                        targetTitle = app.title,
+                        targetCompany = app.company,
+                    )
+                }
+                val pdfFile = pdfForgeRes.getOrNull()?.file
+                if (pdfFile == null || !pdfFile.exists()) {
+                    val reason = "Cannot dispatch Courier: PDF generation failed: ${pdfForgeRes.exceptionOrNull()?.message}"
+                    appendConsoleLog("❌ $reason")
+                    Toast.makeText(context, reason, Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                // Build answers from applicant answers store (Forge Vault)
+                val storedAnswers = appContainer.applicantAnswerDao.getAll()
+                val answersList = storedAnswers.map { ForgeAnswer(questionPattern = it.questionPattern, answer = it.answer) }
+
+                // Dynamic fields from UserProfileManager
+                val nameParts = profile.name.trim().split(Regex("\\s+"), limit = 2)
+                val firstName = nameParts.getOrNull(0)?.ifBlank { null }
+                val lastName = nameParts.getOrNull(1)?.ifBlank { null }
+
+                val fields = ForgeTaskFields(
+                    firstName = firstName,
+                    lastName = lastName,
+                    email = profile.email.ifBlank { null },
+                    phone = profile.phone.ifBlank { null },
+                    location = profile.location.ifBlank { null },
+                    linkedinUrl = null,
+                    githubUrl = if (profile.github.isNotBlank()) profile.github else null,
+                    website = null,
+                )
+
+                val taskId = "courier_${app.id}_${System.currentTimeMillis()}"
+                val atsPlatform = CourierAgentConfig.detectAtsPlatform(app.atsUrl, app.platform).lowercase()
+
+                val forgeTask = ForgeTask(
+                    schema = ForgeTask.SCHEMA_V1,
+                    taskId = taskId,
+                    jobId = app.id,
+                    jobUrl = app.atsUrl,
+                    ats = atsPlatform,
+                    title = app.title,
+                    company = app.company,
+                    autoSubmitApproved = app.allowAutoSubmit,
+                    resumePdf = "resume.pdf",
+                    fields = fields,
+                    answers = answersList,
                     tailoredResume = tailored,
-                    targetTitle = app.title,
-                    targetCompany = app.company,
+                    createdAt = System.currentTimeMillis(),
                 )
+
+                appContainer.forgeOutbox.writeTask(forgeTask, pdfFile)
+
+                // Update app with forgeTaskId and status
+                val idx = applications.indexOfFirst { it.id == app.id }
+                if (idx != -1) {
+                    applications[idx] = applications[idx].copy(
+                        forgeTaskId = taskId,
+                        status = ApplicationStatus.QUEUED,
+                    )
+                }
+
+                appendConsoleLog("🚀 Forge Vault & Courier: Persistent background worker enqueued for ${app.company} (${app.title}) [policy=${if (app.allowAutoSubmit) "AUTO_SUBMIT" else "REVIEW_BEFORE_SUBMIT"}].")
+                enqueuePersistentCourierTask(app, pdfPathOverride = pdfFile.absolutePath)
+                Toast.makeText(context, "Dispatched Courier: ${app.company}", Toast.LENGTH_SHORT).show()
+            } finally {
+                activeDispatchId = null
             }
-            val pdfFile = pdfForgeRes.getOrNull()?.file
-            if (pdfFile == null || !pdfFile.exists()) {
-                val reason = "Cannot queue for Forge: PDF generation failed: ${pdfForgeRes.exceptionOrNull()?.message}"
-                appendConsoleLog("❌ $reason")
-                Toast.makeText(context, reason, Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-
-            // Build answers from applicant answers store
-            val storedAnswers = appContainer.applicantAnswerDao.getAll()
-            val answersList = storedAnswers.map { ForgeAnswer(questionPattern = it.questionPattern, answer = it.answer) }
-
-            // Dynamic fields from UserProfileManager
-            val nameParts = profile.name.trim().split(Regex("\\s+"), limit = 2)
-            val firstName = nameParts.getOrNull(0)?.ifBlank { null }
-            val lastName = nameParts.getOrNull(1)?.ifBlank { null }
-
-            val fields = ForgeTaskFields(
-                firstName = firstName,
-                lastName = lastName,
-                email = profile.email.ifBlank { null },
-                phone = profile.phone.ifBlank { null },
-                location = profile.location.ifBlank { null },
-                linkedinUrl = null,
-                githubUrl = if (profile.github.isNotBlank()) profile.github else null,
-                website = null,
-            )
-
-            val taskId = "forge_${app.id}_${System.currentTimeMillis()}"
-            val atsPlatform = CourierAgentConfig.detectAtsPlatform(app.atsUrl, app.platform).lowercase()
-
-            val forgeTask = ForgeTask(
-                schema = ForgeTask.SCHEMA_V1,
-                taskId = taskId,
-                jobId = app.id,
-                jobUrl = app.atsUrl,
-                ats = atsPlatform,
-                title = app.title,
-                company = app.company,
-                autoSubmitApproved = app.allowAutoSubmit,
-                resumePdf = "resume.pdf",
-                fields = fields,
-                answers = answersList,
-                tailoredResume = tailored,
-                createdAt = System.currentTimeMillis(),
-            )
-
-            appContainer.forgeOutbox.writeTask(forgeTask, pdfFile)
-
-            // Update app with forgeTaskId
-            val idx = applications.indexOfFirst { it.id == app.id }
-            if (idx != -1) {
-                applications[idx] = applications[idx].copy(
-                    forgeTaskId = taskId,
-                    status = ApplicationStatus.QUEUED,
-                )
-            }
-
-            appendConsoleLog("📦 Forge Outbox: Task $taskId written to outbox for ${app.company} (${app.title}). Auto-submit: ${app.allowAutoSubmit}")
-            enqueuePersistentCourierTask(app, pdfPathOverride = pdfFile.absolutePath)
-            Toast.makeText(context, "Queued for Forge & Courier Worker: ${app.company}", Toast.LENGTH_SHORT).show()
         }
     }
+
+    fun queueForForge(app: QueuedApplication) = dispatchCourier(app)
 
     fun ingestForgeResults() {
         coroutineScope.launch {
@@ -571,41 +600,7 @@ fun CourierGuildScreen(
         triggerAtsSync()
     }
 
-    fun runDispatch(app: QueuedApplication) {
-        if (CourierAutoApplyDispatcher.isExcludedFromAutoApply(app)) {
-            val breakdown = CourierAgentConfig.ExecutionBreakdown(
-                status = "BLOCKED_MANUAL_ONLY",
-                atsPlatformDetected = "LinkedIn",
-                mappingLog = emptyList(),
-                unmappedAmbiguousFields = listOf("LinkedIn Portal (Excluded by Anti-Ban Policy)"),
-                failureAnalysisAndUpgradePath = "LinkedIn listings are excluded from automated DOM injection. Routed user to external browser tab.",
-            )
-            breakdown.toConsoleLines(app.company).reversed().forEach { appendConsoleLog(it) }
-            CourierAutoApplyDispatcher.routeToExternalManualApply(context, app.atsUrl)
-            return
-        }
-
-        coroutineScope.launch {
-            activeDispatchId = app.id
-            try {
-                val payloadCheck = appContainer.courierRepository.verifyDynamicPayload(userProfile)
-                appendConsoleLog("Pre-Flight SSO/Profile Payload: ${payloadCheck.name} <${payloadCheck.email}> (${payloadCheck.location})")
-                appendConsoleLog("Validating ${app.platform} portal endpoint for ${app.company}...")
-                val outcome = LinkValidator.resolveAndValidateDirectLink(app.atsUrl)
-                appendConsoleLog("Endpoint verified (HTTP ${outcome.httpStatusCode}). Opening Live Agent Room...")
-
-                val idx = applications.indexOfFirst { it.id == app.id }
-                if (idx != -1) {
-                    applications[idx] = app.copy(status = ApplicationStatus.IN_TRANSIT)
-                } else {
-                    app.status = ApplicationStatus.IN_TRANSIT
-                }
-                activeWebViewApp = app
-            } finally {
-                activeDispatchId = null
-            }
-        }
-    }
+    fun runDispatch(app: QueuedApplication) = dispatchCourier(app)
 
     Column(
         modifier = Modifier
@@ -690,6 +685,30 @@ fun CourierGuildScreen(
                 }
             }
         }
+
+        // --- Pinned Agent Room Header (Compact 5-worker chips LazyRow) ---
+        CompactAgentRoomHeader(
+            workerSlots = workerSlots,
+            activeQuest = activeQuest,
+            onOpenQuestModal = { showLocalQuestModal = true },
+            onCancelSlotWorker = { slotTaskId ->
+                if (slotTaskId.isNotBlank()) {
+                    CourierAutoApplyDispatcher.cancelWorker(context, slotTaskId)
+                    coroutineScope.launch(Dispatchers.IO) {
+                        val existing = appContainer.courierTaskDao.getById(slotTaskId)
+                        if (existing != null) {
+                            val cancelled = CourierStateMachine.transition(
+                                task = existing,
+                                targetStatus = CourierTaskStatus.CANCELLED,
+                                step = "CANCELLED_IN_AGENT_ROOM",
+                            )
+                            appContainer.courierTaskDao.upsert(cancelled)
+                        }
+                    }
+                    appendConsoleLog("🛑 Cancelled worker for task $slotTaskId and freed WebView slot.")
+                }
+            },
+        )
 
         // --- Main Ledger Content (LazyColumn with clamped section heights & nested scroll support) ---
         LazyColumn(
@@ -848,100 +867,21 @@ fun CourierGuildScreen(
                     logs = consoleLogs,
                     activeQueueCount = applications.count { it.status == ApplicationStatus.QUEUED || it.status == ApplicationStatus.IN_TRANSIT },
                     onOpenLiveAgentRoom = {
-                        val nextTarget = applications.firstOrNull { it.status == ApplicationStatus.IN_TRANSIT }
-                            ?: applications.firstOrNull { it.status == ApplicationStatus.QUEUED }
-                            ?: applications.firstOrNull()
-                        if (nextTarget != null) {
-                            runDispatch(nextTarget)
+                        val nextTarget = applications.firstOrNull { it.status == ApplicationStatus.IN_TRANSIT && !it.forgeTaskId.isNullOrBlank() }
+                        if (nextTarget?.forgeTaskId != null) {
+                            CourierAutoApplyDispatcher.openTakeover(nextTarget.forgeTaskId)
+                        } else {
+                            val nextQueue = applications.firstOrNull { it.status == ApplicationStatus.QUEUED }
+                                ?: applications.firstOrNull()
+                            if (nextQueue != null) {
+                                dispatchCourier(nextQueue)
+                            }
                         }
                     },
                 )
             }
 
-            // 3b. Agent Room Worker Slots (Up to 5 Concurrent Workers) + Persistent Room Tasks Ledger
-            item {
-                PersistentAgentRoomAndTasksCard(
-                    workerSlots = workerSlots,
-                    persistedTasks = persistedTasks,
-                    activeQuest = activeQuest,
-                    onOpenQuestModal = { showLocalQuestModal = true },
-                    onCancelSlotWorker = { slotTaskId ->
-                        if (slotTaskId.isNotBlank()) {
-                            CourierAutoApplyDispatcher.cancelWorker(context, slotTaskId)
-                            coroutineScope.launch(Dispatchers.IO) {
-                                val existing = appContainer.courierTaskDao.getById(slotTaskId)
-                                if (existing != null) {
-                                    val cancelled = CourierStateMachine.transition(
-                                        task = existing,
-                                        targetStatus = CourierTaskStatus.CANCELLED,
-                                        step = "CANCELLED_IN_AGENT_ROOM",
-                                    )
-                                    appContainer.courierTaskDao.upsert(cancelled)
-                                }
-                            }
-                            appendConsoleLog("🛑 Cancelled worker for task $slotTaskId and freed WebView slot.")
-                        }
-                    },
-                    onResumeTask = { task ->
-                        coroutineScope.launch(Dispatchers.IO) {
-                            val currentStatus = CourierTaskStatus.fromString(task.status)
-                            val updated = if (CourierStateMachine.canTransition(currentStatus, CourierTaskStatus.QUEUED)) {
-                                CourierStateMachine.transition(
-                                    task = task,
-                                    targetStatus = CourierTaskStatus.QUEUED,
-                                    step = "RESUMED_FROM_LEDGER",
-                                )
-                            } else {
-                                task.copy(status = CourierTaskStatus.QUEUED.name, updatedAt = System.currentTimeMillis())
-                            }
-                            appContainer.courierTaskDao.upsert(updated)
-                            CourierQueueWorker.enqueueTask(
-                                context = context,
-                                taskId = task.taskId,
-                                requireNetwork = !task.jobUrl.contains("appassets.androidplatform.net"),
-                                replaceExisting = true,
-                            )
-                        }
-                        appendConsoleLog("▶ Resumed persistent Courier task ${task.taskId} (${task.company}).")
-                    },
-                    onOpenTakeover = { task ->
-                        CourierAutoApplyDispatcher.openTakeover(task.taskId)
-                    },
-                    onSnoozeTask = { task ->
-                        val snoozeDurationMs = CourierStateMachine.DEFAULT_SNOOZE_DURATION_MS
-                        val snoozedUntil = System.currentTimeMillis() + snoozeDurationMs
-                        coroutineScope.launch(Dispatchers.IO) {
-                            val currentStatus = CourierTaskStatus.fromString(task.status)
-                            if (CourierStateMachine.canTransition(currentStatus, CourierTaskStatus.SNOOZED)) {
-                                val snoozed = CourierStateMachine.transition(
-                                    task = task,
-                                    targetStatus = CourierTaskStatus.SNOOZED,
-                                    step = "SNOOZED_FROM_LEDGER",
-                                    snoozedUntil = snoozedUntil,
-                                )
-                                appContainer.courierTaskDao.upsert(snoozed)
-                                CourierQueueWorker.enqueueTask(
-                                    context = context,
-                                    taskId = task.taskId,
-                                    initialDelayMs = snoozeDurationMs,
-                                    requireNetwork = !task.jobUrl.contains("appassets.androidplatform.net"),
-                                    replaceExisting = true,
-                                )
-                            }
-                        }
-                        appendConsoleLog("💤 Snoozed task ${task.taskId} (${task.company}) for 30m.")
-                    },
-                    onRemoveTask = { task ->
-                        CourierAutoApplyDispatcher.cancelWorker(context, task.taskId)
-                        coroutineScope.launch(Dispatchers.IO) {
-                            appContainer.courierTaskDao.deleteById(task.taskId)
-                        }
-                        appendConsoleLog("🗑 Removed persistent task ${task.taskId} (${task.company}).")
-                    },
-                )
-            }
-
-            // 4. Queued Application Cards
+            // 4. Unified Job Ledger Cards (Single List)
             val filteredApps = applications.filter {
                 selectedStatus == null || it.status == selectedStatus
             }
@@ -950,9 +890,16 @@ fun CourierGuildScreen(
                 ApplicationQueueCard(
                     app = app,
                     isDispatching = activeDispatchId == app.id,
-                    onDispatch = { runDispatch(app) },
+                    onDispatchCourier = { dispatchCourier(app) },
                     onViewPdf = { viewingAppForPdf = app },
                     onDelete = {
+                        val taskId = app.forgeTaskId
+                        if (!taskId.isNullOrBlank()) {
+                            CourierAutoApplyDispatcher.cancelWorker(context, taskId)
+                            coroutineScope.launch(Dispatchers.IO) {
+                                appContainer.courierTaskDao.deleteById(taskId)
+                            }
+                        }
                         applications.removeAll { it.id == app.id }
                         appendConsoleLog("🗑 Deleted ${app.company} (${app.title}) [${app.status.label}] from Application Pipeline.")
                         Toast.makeText(
@@ -980,7 +927,61 @@ fun CourierGuildScreen(
                             applications[idx] = applications[idx].copy(allowAutoSubmit = allow)
                         }
                     },
-                    onQueueForForge = { queueForForge(app) },
+                    onOpenTakeover = { taskId ->
+                        CourierAutoApplyDispatcher.openTakeover(taskId)
+                    },
+                    onResumeTask = { taskId ->
+                        coroutineScope.launch(Dispatchers.IO) {
+                            val task = appContainer.courierTaskDao.getById(taskId)
+                            if (task != null) {
+                                val currentStatus = CourierTaskStatus.fromString(task.status)
+                                val updated = if (CourierStateMachine.canTransition(currentStatus, CourierTaskStatus.QUEUED)) {
+                                    CourierStateMachine.transition(
+                                        task = task,
+                                        targetStatus = CourierTaskStatus.QUEUED,
+                                        step = "RESUMED_FROM_LEDGER",
+                                    )
+                                } else {
+                                    task.copy(status = CourierTaskStatus.QUEUED.name, updatedAt = System.currentTimeMillis())
+                                }
+                                appContainer.courierTaskDao.upsert(updated)
+                                CourierQueueWorker.enqueueTask(
+                                    context = context,
+                                    taskId = task.taskId,
+                                    requireNetwork = !task.jobUrl.contains("appassets.androidplatform.net"),
+                                    replaceExisting = true,
+                                )
+                                appendConsoleLog("▶ Resumed persistent Courier task ${task.taskId} (${task.company}).")
+                            }
+                        }
+                    },
+                    onSnoozeTask = { taskId ->
+                        val snoozeDurationMs = CourierStateMachine.DEFAULT_SNOOZE_DURATION_MS
+                        val snoozedUntil = System.currentTimeMillis() + snoozeDurationMs
+                        coroutineScope.launch(Dispatchers.IO) {
+                            val task = appContainer.courierTaskDao.getById(taskId)
+                            if (task != null) {
+                                val currentStatus = CourierTaskStatus.fromString(task.status)
+                                if (CourierStateMachine.canTransition(currentStatus, CourierTaskStatus.SNOOZED)) {
+                                    val snoozed = CourierStateMachine.transition(
+                                        task = task,
+                                        targetStatus = CourierTaskStatus.SNOOZED,
+                                        step = "SNOOZED_FROM_LEDGER",
+                                        snoozedUntil = snoozedUntil,
+                                    )
+                                    appContainer.courierTaskDao.upsert(snoozed)
+                                    CourierQueueWorker.enqueueTask(
+                                        context = context,
+                                        taskId = task.taskId,
+                                        initialDelayMs = snoozeDurationMs,
+                                        requireNetwork = !task.jobUrl.contains("appassets.androidplatform.net"),
+                                        replaceExisting = true,
+                                    )
+                                    appendConsoleLog("💤 Snoozed task ${task.taskId} (${task.company}) for 30m.")
+                                }
+                            }
+                        }
+                    },
                 )
             }
 
@@ -1488,12 +1489,16 @@ private fun CounterTile(
 private fun ApplicationQueueCard(
     app: QueuedApplication,
     isDispatching: Boolean,
-    onDispatch: () -> Unit,
+    onDispatchCourier: () -> Unit,
     onViewPdf: () -> Unit,
     onDelete: () -> Unit = {},
     onAdvanceStatus: (ApplicationStatus) -> Unit = {},
     onToggleAutoSubmit: (Boolean) -> Unit = {},
-    onQueueForForge: () -> Unit = {},
+    onOpenTakeover: (taskId: String) -> Unit = {},
+    onResumeTask: (taskId: String) -> Unit = {},
+    onSnoozeTask: (taskId: String) -> Unit = {},
+    onDispatch: () -> Unit = onDispatchCourier,
+    onQueueForForge: () -> Unit = onDispatchCourier,
 ) {
     Card(
         shape = RoundedCornerShape(8.dp),
@@ -1612,8 +1617,31 @@ private fun ApplicationQueueCard(
                 }
             }
 
-            // Task 4: Missing fields alert banner
-            if (app.missingFields.isNotEmpty()) {
+            // Blocked Reason & Missing Fields Banner
+            if (!app.blockedReason.isNullOrBlank() || app.status == ApplicationStatus.NEEDS_INPUT) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color(0xFF381414),
+                    border = BorderStroke(1.dp, Color(0xFFEF5350)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(modifier = Modifier.padding(6.dp)) {
+                        Text(
+                            text = "⚠ Blocked: ${app.blockedReason ?: "Action or review required"}",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFFEF5350),
+                        )
+                        if (app.missingFields.isNotEmpty()) {
+                            Text(
+                                text = "Missing Fields: ${app.missingFields.joinToString(", ")}",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                color = Color(0xFFFFB74D),
+                            )
+                        }
+                    }
+                }
+            } else if (app.missingFields.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Surface(
                     shape = RoundedCornerShape(4.dp),
@@ -1672,86 +1700,64 @@ private fun ApplicationQueueCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Action: Dispatch / Status Progression + Delete Action across all 4 Pipeline Tabs
+            // Action: Consolidated Single Action Area
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedButton(
-                        onClick = onDelete,
-                        shape = RoundedCornerShape(6.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        border = BorderStroke(1.dp, Color(0xFFEF5350)),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = Color(0xFF2B1212),
-                            contentColor = Color(0xFFEF5350),
-                        ),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete Application",
-                            tint = Color(0xFFEF5350),
-                            modifier = Modifier.size(13.dp),
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Delete",
-                            color = Color(0xFFEF5350),
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        )
-                    }
-
-                    // Task 3: "Queue for Forge" action
-                    OutlinedButton(
-                        onClick = onQueueForForge,
-                        shape = RoundedCornerShape(6.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        border = BorderStroke(1.dp, Color(0xFFFFA726)),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = Color(0xFF2B1D14),
-                            contentColor = Color(0xFFFFA726),
-                        ),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Bolt,
-                            contentDescription = "Queue for Forge",
-                            tint = Color(0xFFFFA726),
-                            modifier = Modifier.size(13.dp),
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Queue for Forge",
-                            color = Color(0xFFFFA726),
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        )
-                    }
+                // Left: Delete Action
+                OutlinedButton(
+                    onClick = onDelete,
+                    shape = RoundedCornerShape(6.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    border = BorderStroke(1.dp, Color(0xFFEF5350)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = Color(0xFF2B1212),
+                        contentColor = Color(0xFFEF5350),
+                    ),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete Application",
+                        tint = Color(0xFFEF5350),
+                        modifier = Modifier.size(13.dp),
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Delete",
+                        color = Color(0xFFEF5350),
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    )
                 }
 
+                // Right: Consolidated Primary Action based on Courier state
                 when (app.status) {
                     ApplicationStatus.QUEUED -> {
                         Button(
-                            onClick = onDispatch,
+                            onClick = onDispatchCourier,
                             enabled = !isDispatching,
                             shape = RoundedCornerShape(6.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = OsrsGold),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = OsrsGold,
+                                contentColor = Color(0xFF140D07),
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp),
                         ) {
                             if (isDispatching) {
-                                CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.Black)
+                                CircularProgressIndicator(modifier = Modifier.size(13.dp), color = Color(0xFF140D07), strokeWidth = 2.dp)
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Dispatching...", color = Color.Black, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                                Text("Dispatching...", color = Color(0xFF140D07), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
                             } else {
-                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Execute Autofill / Dispatch", color = Color.Black, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                                Icon(Icons.Default.Bolt, contentDescription = null, tint = Color(0xFF140D07), modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text("Dispatch Courier", color = Color(0xFF140D07), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold))
                             }
                         }
                     }
                     ApplicationStatus.IN_TRANSIT -> {
                         FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Surface(
@@ -1759,12 +1765,32 @@ private fun ApplicationQueueCard(
                                 color = Color(0xFF0F3038),
                                 border = BorderStroke(1.dp, Color(0xFF00E5FF)),
                             ) {
-                                Text(
-                                    text = "✈ In-Transit (Dispatched)",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = Color(0xFF00E5FF),
+                                Row(
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                )
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(10.dp),
+                                        color = Color(0xFF00E5FF),
+                                        strokeWidth = 1.5.dp,
+                                    )
+                                    Text(
+                                        text = "In-Transit · ${app.courierStep ?: "Working"}",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                                        color = Color(0xFF00E5FF),
+                                    )
+                                }
+                            }
+                            if (!app.forgeTaskId.isNullOrBlank()) {
+                                OutlinedButton(
+                                    onClick = { onOpenTakeover(app.forgeTaskId) },
+                                    shape = RoundedCornerShape(4.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF00E5FF)),
+                                ) {
+                                    Text("Open Takeover", color = Color(0xFF00E5FF), style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                                }
                             }
                             OutlinedButton(
                                 onClick = { onAdvanceStatus(ApplicationStatus.SUBMITTED) },
@@ -1772,7 +1798,49 @@ private fun ApplicationQueueCard(
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                                 border = BorderStroke(1.dp, Color(0xFF4CAF50)),
                             ) {
-                                Text("Mark Submitted", color = Color(0xFF81C784), style = MaterialTheme.typography.labelSmall)
+                                Text("Mark Submitted", color = Color(0xFF81C784), style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                            }
+                        }
+                    }
+                    ApplicationStatus.NEEDS_INPUT, ApplicationStatus.AWAITING_REVIEW -> {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            if (!app.forgeTaskId.isNullOrBlank()) {
+                                OutlinedButton(
+                                    onClick = { onOpenTakeover(app.forgeTaskId) },
+                                    shape = RoundedCornerShape(4.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF00E5FF)),
+                                ) {
+                                    Text("Open Takeover", color = Color(0xFF00E5FF), style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold))
+                                }
+                                OutlinedButton(
+                                    onClick = { onResumeTask(app.forgeTaskId) },
+                                    shape = RoundedCornerShape(4.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF4CAF50)),
+                                ) {
+                                    Text("Resume", color = Color(0xFF81C784), style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold))
+                                }
+                                OutlinedButton(
+                                    onClick = { onSnoozeTask(app.forgeTaskId) },
+                                    shape = RoundedCornerShape(4.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    border = BorderStroke(1.dp, Color(0xFFFFA726)),
+                                ) {
+                                    Text("Snooze (30m)", color = Color(0xFFFFA726), style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold))
+                                }
+                            } else {
+                                Button(
+                                    onClick = onDispatchCourier,
+                                    shape = RoundedCornerShape(4.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = OsrsGold),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 3.dp),
+                                ) {
+                                    Text("Dispatch Courier", color = Color(0xFF140D07), style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Bold))
+                                }
                             }
                         }
                     }
@@ -1817,60 +1885,31 @@ private fun ApplicationQueueCard(
                             )
                         }
                     }
-                    ApplicationStatus.AWAITING_REVIEW -> {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFF33200A),
-                            border = BorderStroke(1.dp, Color(0xFFFFA726)),
+                    ApplicationStatus.FAILED, ApplicationStatus.UNCONFIRMED -> {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            Text(
-                                text = "⏳ Awaiting Review",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color(0xFFFFA726),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
-                        }
-                    }
-                    ApplicationStatus.NEEDS_INPUT -> {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFF300E0E),
-                            border = BorderStroke(1.dp, Color(0xFFEF5350)),
-                        ) {
-                            Text(
-                                text = "⚠ Needs Input",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color(0xFFEF5350),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
-                        }
-                    }
-                    ApplicationStatus.FAILED -> {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFF2B1212),
-                            border = BorderStroke(1.dp, Color(0xFFE57373)),
-                        ) {
-                            Text(
-                                text = "✖ Submission Failed",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color(0xFFE57373),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
-                        }
-                    }
-                    ApplicationStatus.UNCONFIRMED -> {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFF30200A),
-                            border = BorderStroke(1.dp, Color(0xFFFFB74D)),
-                        ) {
-                            Text(
-                                text = "❓ Submit Unconfirmed",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color(0xFFFFB74D),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF381414),
+                                border = BorderStroke(1.dp, Color(0xFFEF5350)),
+                            ) {
+                                Text(
+                                    text = "✕ ${app.status.label}",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = Color(0xFFEF5350),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                )
+                            }
+                            Button(
+                                onClick = onDispatchCourier,
+                                shape = RoundedCornerShape(4.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = OsrsGold),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            ) {
+                                Text("Retry Dispatch", color = Color(0xFF140D07), style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold))
+                            }
                         }
                     }
                 }
@@ -2858,7 +2897,151 @@ private fun AccountsMadeByCourierDialog(
 }
 
 /**
- * Agent Room 5-worker slot monitor + Persistent Room `courier_task` ledger (Phase 4.4 & Reconciliation §2, §3).
+ * Compact Pinned Agent Room Header (instruction.md §5, Reconciliation §2).
+ * Pinned at top of screen as a persistent dashboard header with 5 worker chips in a horizontal LazyRow.
+ */
+@Composable
+private fun CompactAgentRoomHeader(
+    workerSlots: List<CourierWorkerSlot>,
+    activeQuest: CourierCaptchaQuest?,
+    onOpenQuestModal: () -> Unit,
+    onCancelSlotWorker: (taskId: String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = Color(0xFF1E140C),
+        border = BorderStroke(1.dp, OsrsGold.copy(alpha = 0.6f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 2.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        text = "⚙ AGENT ROOM",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold, fontSize = 10.sp),
+                        color = OsrsGold,
+                    )
+                    val activeCount = workerSlots.count { it.taskId.isNotBlank() }
+                    Surface(
+                        shape = RoundedCornerShape(3.dp),
+                        color = if (activeCount > 0) Color(0xFF0F2D38) else Color(0xFF2A1C12),
+                        border = BorderStroke(0.6.dp, if (activeCount > 0) Color(0xFF00E5FF) else OsrsDarkBorder),
+                    ) {
+                        Text(
+                            text = "$activeCount/${CourierAgentConfig.maxConcurrentWorkers} ACTIVE",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp, fontWeight = FontWeight.Bold),
+                            color = if (activeCount > 0) Color(0xFF00E5FF) else OsrsTextDim,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                        )
+                    }
+                    Text(
+                        text = "· Cap: ${CourierAgentConfig.dailyCap}/day",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp),
+                        color = OsrsTextDim,
+                    )
+                }
+
+                if (activeQuest != null) {
+                    CourierQuestOrb(onClick = onOpenQuestModal)
+                }
+            }
+
+            // Compact horizontally scrolling LazyRow of 5 worker chips
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                items(workerSlots, key = { it.slotIndex }) { slot ->
+                    val isBusy = slot.taskId.isNotBlank()
+                    Surface(
+                        shape = RoundedCornerShape(5.dp),
+                        color = if (isBusy) Color(0xFF0D2530) else Color(0xFF140D07),
+                        border = BorderStroke(
+                            0.8.dp,
+                            if (isBusy) Color(0xFF00E5FF) else OsrsDarkBorder,
+                        ),
+                        modifier = Modifier.width(135.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(1.dp),
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                ) {
+                                    Text(
+                                        text = "W${slot.slotIndex + 1}",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontSize = 8.5.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                        ),
+                                        color = if (isBusy) Color(0xFF00E5FF) else OsrsTextDim,
+                                    )
+                                    Text(
+                                        text = "· ${slot.status.name}",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                                        color = if (isBusy) Color(0xFF80D8FF) else OsrsTextDim.copy(alpha = 0.7f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Text(
+                                    text = if (isBusy) slot.company.ifBlank { "Job #${slot.jobId.take(6)}" } else "Idle",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 8.5.sp,
+                                        fontWeight = if (isBusy) FontWeight.Bold else FontWeight.Normal,
+                                    ),
+                                    color = if (isBusy) Color.White else OsrsTextDim.copy(alpha = 0.5f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            if (isBusy) {
+                                Surface(
+                                    shape = RoundedCornerShape(3.dp),
+                                    color = Color(0xFF3B1212),
+                                    border = BorderStroke(0.6.dp, Color(0xFFEF5350)),
+                                    modifier = Modifier
+                                        .clickable { onCancelSlotWorker(slot.taskId) }
+                                        .padding(start = 2.dp),
+                                ) {
+                                    Text(
+                                        text = "✕",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp, fontWeight = FontWeight.Bold),
+                                        color = Color(0xFFEF5350),
+                                        modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Backwards-compatible overload for PersistentAgentRoomAndTasksCard.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -2868,203 +3051,15 @@ private fun PersistentAgentRoomAndTasksCard(
     activeQuest: CourierCaptchaQuest?,
     onOpenQuestModal: () -> Unit,
     onCancelSlotWorker: (taskId: String) -> Unit,
-    onResumeTask: (com.osrs.careerguild.data.local.entity.CourierTaskEntity) -> Unit,
-    onOpenTakeover: (com.osrs.careerguild.data.local.entity.CourierTaskEntity) -> Unit,
-    onSnoozeTask: (com.osrs.careerguild.data.local.entity.CourierTaskEntity) -> Unit,
-    onRemoveTask: (com.osrs.careerguild.data.local.entity.CourierTaskEntity) -> Unit,
+    onResumeTask: (com.osrs.careerguild.data.local.entity.CourierTaskEntity) -> Unit = {},
+    onOpenTakeover: (com.osrs.careerguild.data.local.entity.CourierTaskEntity) -> Unit = {},
+    onSnoozeTask: (com.osrs.careerguild.data.local.entity.CourierTaskEntity) -> Unit = {},
+    onRemoveTask: (com.osrs.careerguild.data.local.entity.CourierTaskEntity) -> Unit = {},
 ) {
-    Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = OsrsStone),
-        border = BorderStroke(1.2.dp, OsrsGold.copy(alpha = 0.85f)),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(
-            modifier = Modifier.padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "⚙ AGENT ROOM SLOTS (${CourierAgentConfig.maxConcurrentWorkers} CONCURRENT) & WORKMANAGER LEDGER",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                        color = OsrsGold,
-                    )
-                    Text(
-                        text = "Daily Cap: ${CourierAgentConfig.dailyCap}/day · Pacing: ${CourierAgentConfig.interApplicationDelayMinMs / 1000}s–${CourierAgentConfig.interApplicationDelayMaxMs / 1000}s · Write-Ahead Room Persistence",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp),
-                        color = OsrsTextDim,
-                    )
-                }
-                if (activeQuest != null) {
-                    CourierQuestOrb(onClick = onOpenQuestModal)
-                }
-            }
-
-            // 5 Worker Slots row
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                items(workerSlots, key = { it.slotIndex }) { slot ->
-                    val isBusy = slot.taskId.isNotBlank()
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isBusy) Color(0xFF0F2D38) else OsrsDarkStone,
-                        border = BorderStroke(
-                            1.dp,
-                            if (isBusy) Color(0xFF00E5FF) else OsrsDarkBorder,
-                        ),
-                        modifier = Modifier.width(155.dp),
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(3.dp),
-                        ) {
-                            Text(
-                                text = "Worker #${slot.slotIndex + 1} · ${slot.status.name}",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                                color = if (isBusy) Color(0xFF00E5FF) else OsrsTextDim,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                text = if (isBusy) "${slot.company} · ${slot.jobTitle}" else "Idle Slot",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
-                                color = Color.White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            if (isBusy) {
-                                OutlinedButton(
-                                    onClick = { onCancelSlotWorker(slot.taskId) },
-                                    shape = RoundedCornerShape(4.dp),
-                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                                    border = BorderStroke(1.dp, Color(0xFFEF5350)),
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Text(
-                                        text = "Cancel Worker",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontSize = 8.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                        ),
-                                        color = Color(0xFFEF5350),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Persisted Room tasks with live status, blocked_reason, blocked field labels, and Resume / Open Takeover / Remove
-            if (persistedTasks.isNotEmpty()) {
-                Text(
-                    text = "📋 PERSISTENT ROOM TASKS (${persistedTasks.size})",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    color = Color(0xFF81C784),
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    persistedTasks.take(10).forEach { task ->
-                        val blockedLabels = remember(task.blockedFieldsJson) {
-                            parseBlockedFieldsJson(task.blockedFieldsJson)
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = OsrsDarkStone,
-                            border = BorderStroke(1.dp, OsrsGold.copy(alpha = 0.45f)),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = "${task.company.ifBlank { task.ats }} · ${task.title.ifBlank { task.taskId }}",
-                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                        color = Color.White,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Text(
-                                        text = "[${task.status}]",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontSize = 9.5.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                        ),
-                                        color = OsrsGold,
-                                    )
-                                }
-                                if (!task.blockedReason.isNullOrBlank()) {
-                                    Text(
-                                        text = "⚠ Blocked Reason: ${task.blockedReason}",
-                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Bold),
-                                        color = Color(0xFFEF5350),
-                                    )
-                                }
-                                if (blockedLabels.isNotEmpty()) {
-                                    Text(
-                                        text = "Missing / Blocked Fields: ${blockedLabels.joinToString(", ")}",
-                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                                        color = Color(0xFFFFB74D),
-                                    )
-                                }
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                                ) {
-                                    OutlinedButton(
-                                        onClick = { onResumeTask(task) },
-                                        shape = RoundedCornerShape(4.dp),
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                        border = BorderStroke(1.dp, Color(0xFF4CAF50)),
-                                    ) {
-                                        Text("Resume", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFF81C784))
-                                    }
-                                    OutlinedButton(
-                                        onClick = { onOpenTakeover(task) },
-                                        shape = RoundedCornerShape(4.dp),
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                        border = BorderStroke(1.dp, Color(0xFF00E5FF)),
-                                    ) {
-                                        Text("Open Takeover", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFF00E5FF))
-                                    }
-                                    OutlinedButton(
-                                        onClick = { onSnoozeTask(task) },
-                                        shape = RoundedCornerShape(4.dp),
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                        border = BorderStroke(1.dp, Color(0xFFFFA726)),
-                                    ) {
-                                        Text("Snooze", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFFFFA726))
-                                    }
-                                    OutlinedButton(
-                                        onClick = { onRemoveTask(task) },
-                                        shape = RoundedCornerShape(4.dp),
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                        border = BorderStroke(1.dp, Color(0xFFEF5350)),
-                                    ) {
-                                        Text("Remove", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = Color(0xFFEF5350))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    CompactAgentRoomHeader(
+        workerSlots = workerSlots,
+        activeQuest = activeQuest,
+        onOpenQuestModal = onOpenQuestModal,
+        onCancelSlotWorker = onCancelSlotWorker,
+    )
 }
