@@ -37,6 +37,69 @@ object CourierGuardrails {
         }
     }
 
+    private val GUEST_APPLY_REGEX = Regex(
+        "guest apply|apply as guest|apply without (an? )?account|continue as guest|" +
+            "autofill with resume|apply with resume|upload resume to start|upload resume|" +
+            "quick apply|continue without (an? )?account",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val GATEKEEPER_NEXT_REGEX = Regex(
+        "^next$|^continue$|^proceed$|^start application$|^get started$|^save & continue$|^save and continue$|^next step$|^submit email$",
+        RegexOption.IGNORE_CASE
+    )
+
+    fun findResumeFileInput(controls: List<DomControlSnapshot>): DomControlSnapshot? {
+        val fileInputs = controls.filter { it.tag.equals("input", ignoreCase = true) && it.type.equals("file", ignoreCase = true) }
+        if (fileInputs.isEmpty()) return null
+        return fileInputs.firstOrNull {
+            val text = "${it.label} ${it.name} ${it.id} ${it.placeholder}".lowercase()
+            Regex("resume|cv|curriculum").containsMatchIn(text)
+        } ?: fileInputs.first()
+    }
+
+    fun findGuestApplyTrigger(controls: List<DomControlSnapshot>): DomControlSnapshot? {
+        return controls.firstOrNull { ctrl ->
+            val tag = ctrl.tag.lowercase()
+            val type = ctrl.type.lowercase()
+            val isClickable = tag in setOf("a", "button") || (tag == "input" && type in setOf("button", "submit")) ||
+                ctrl.containerHint.contains("button", ignoreCase = true)
+            if (!isClickable) return@firstOrNull false
+            val combined = "${ctrl.label} ${ctrl.id} ${ctrl.name}".trim()
+            GUEST_APPLY_REGEX.containsMatchIn(combined)
+        }
+    }
+
+    fun findGatekeeperNextButton(controls: List<DomControlSnapshot>): DomControlSnapshot? {
+        return controls.firstOrNull { ctrl ->
+            val tag = ctrl.tag.lowercase()
+            val type = ctrl.type.lowercase()
+            val isClickable = tag in setOf("a", "button") || (tag == "input" && type in setOf("button", "submit")) ||
+                ctrl.containerHint.contains("button", ignoreCase = true)
+            if (!isClickable) return@firstOrNull false
+            val label = ctrl.label.trim()
+            if (label.isBlank()) return@firstOrNull false
+            if (Regex("cookie|consent|reject|accept|close|privacy|terms", RegexOption.IGNORE_CASE).containsMatchIn(label)) {
+                return@firstOrNull false
+            }
+            GATEKEEPER_NEXT_REGEX.containsMatchIn(label)
+        }
+    }
+
+    fun isMultiStepGatekeeper(controls: List<DomControlSnapshot>): Boolean {
+        if (findResumeFileInput(controls) != null) return false
+        findGatekeeperNextButton(controls) ?: return false
+        val fillable = controls.filter {
+            val tag = it.tag.lowercase()
+            val type = it.type.lowercase()
+            (tag in setOf("input", "select", "textarea")) &&
+                type !in setOf("file", "button", "submit", "reset", "hidden") &&
+                !CourierApplyTriggerFinder.isNewsletterOrMarketingTrap(it)
+        }
+        val hasPassword = fillable.any { it.type.equals("password", ignoreCase = true) }
+        return !hasPassword && fillable.size in 1..5
+    }
+
     /** Hosts of external assessment / one-way video interview vendors. */
     val HANDOFF_HOSTS = listOf(
         "hirevue", "codility", "hackerrank", "codesignal", "testgorilla", "pymetrics", "vidcruiter",

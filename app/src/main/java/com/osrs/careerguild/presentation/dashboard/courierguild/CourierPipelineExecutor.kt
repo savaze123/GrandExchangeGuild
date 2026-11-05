@@ -231,6 +231,24 @@ object CourierPipelineExecutor {
                 ?: container.courierAccountDao.findByPortalOrCompany(task.jobUrl, task.company)
 
             if (savedAccount == null) {
+                // Stage A: Scroll and scan for Resume Dropzone / Guest Apply BEFORE declaring LOGIN_REQUIRED
+                val scrolledSnapshot = webHost.scrollToBottomAndScan(task.taskId)
+                val guestApplyBtn = CourierGuardrails.findGuestApplyTrigger(scrolledSnapshot)
+                val resumeInput = CourierGuardrails.findResumeFileInput(scrolledSnapshot)
+
+                if (guestApplyBtn != null) {
+                    webHost.clickElementSafely(task.taskId, guestApplyBtn.elementId)
+                    delay(1500L)
+                    val afterGuest = webHost.extractDomSnapshot(task.taskId)
+                    if (afterGuest.none { it.type.equals("password", ignoreCase = true) } ||
+                        CourierGuardrails.findResumeFileInput(afterGuest) != null
+                    ) {
+                        return null // Successfully bypassed login wall via Guest Apply!
+                    }
+                } else if (resumeInput != null) {
+                    return null // Resume upload dropzone is already available on the page; bypass login!
+                }
+
                 return EarlyBlockOutcome(
                     reason = CourierBlockedReason.LOGIN_REQUIRED,
                     blockedFields = listOf("Login credentials required for ${task.company}"),
@@ -284,25 +302,35 @@ object CourierPipelineExecutor {
      * Dismisses cookie banners and navigates to the application form in at most 2 attempts.
      * Blocks with `NO_APPLY_PATH` if the form cannot be reached after 2 attempts.
      */
+    /**
+     * 4-Stage Troubleshooting Navigation Engine:
+     * - Stage A: Scroll & Scan for Resume Dropzone / Guest Apply.
+     * - Stage B: Gatekeeper Step Progression (e.g. Email/Name -> Next).
+     * - Stage C: Apply Button Discovery (strict positive/negative scoring).
+     * - Stage D: Grounded Gemini Troubleshooter Fallback.
+     */
     suspend fun navigateToApplicationForm(
         task: CourierTaskEntity,
         webHost: CourierWebHost,
         courierModel: CourierModel,
+        container: AppContainer? = null,
+        context: Context? = null,
     ): NavigationOutcome {
         var currentUrl = webHost.getCurrentUrl(task.taskId).ifBlank { task.currentUrl.ifBlank { task.jobUrl } }
 
         for (attempt in 1..2) {
             val snapshot = webHost.extractDomSnapshot(task.taskId)
 
-            // 1. Handle cookie banner separately first ("reject non-essential" / "necessary only", else close)
+            // Handle cookie banner first
             CourierApplyTriggerFinder.findCookieBannerDismiss(snapshot)?.let { cookieBtn ->
                 webHost.clickElementSafely(task.taskId, cookieBtn.elementId)
                 delay(450L)
             }
 
             val refreshed = webHost.extractDomSnapshot(task.taskId)
-            val selection = CourierApplyTriggerFinder.selectApplyTrigger(refreshed, currentUrl)
-            if (selection.formAlreadyVisible) {
+            if (CourierApplyTriggerFinder.isApplicationFormVisible(refreshed, currentUrl) ||
+                CourierGuardrails.findResumeFileInput(refreshed) != null
+            ) {
                 return NavigationOutcome(
                     formReached = true,
                     currentUrl = currentUrl,
@@ -310,9 +338,100 @@ object CourierPipelineExecutor {
                 )
             }
 
+            // -------------------------------------------------------------
+            // Stage A: Scroll & Scan for Resume Dropzone / Guest Apply
+            // -------------------------------------------------------------
+            val scrolledSnapshot = webHost.scrollToBottomAndScan(task.taskId)
+            val guestApplyBtn = CourierGuardrails.findGuestApplyTrigger(scrolledSnapshot)
+            val resumeInput = CourierGuardrails.findResumeFileInput(scrolledSnapshot)
+
+            if (guestApplyBtn != null) {
+                webHost.clickElementSafely(task.taskId, guestApplyBtn.elementId)
+                delay(1500L)
+                currentUrl = webHost.getCurrentUrl(task.taskId).ifBlank { currentUrl }
+                val postGuestSnapshot = webHost.extractDomSnapshot(task.taskId)
+                if (CourierApplyTriggerFinder.isApplicationFormVisible(postGuestSnapshot, currentUrl) ||
+                    CourierGuardrails.findResumeFileInput(postGuestSnapshot) != null
+                ) {
+                    return NavigationOutcome(
+                        formReached = true,
+                        currentUrl = currentUrl,
+                        detail = "Reached form via Guest Apply trigger '${guestApplyBtn.label}'",
+                    )
+                }
+            } else if (resumeInput != null) {
+                return NavigationOutcome(
+                    formReached = true,
+                    currentUrl = currentUrl,
+                    detail = "Found resume dropzone after scrolling",
+                )
+            }
+
+            // -------------------------------------------------------------
+            // Stage B: Gatekeeper Step Progression (e.g. Email/Name -> Next)
+            // -------------------------------------------------------------
+            val gatekeeperSnapshot = webHost.extractDomSnapshot(task.taskId)
+            if (CourierGuardrails.isMultiStepGatekeeper(gatekeeperSnapshot)) {
+                val nextBtn = CourierGuardrails.findGatekeeperNextButton(gatekeeperSnapshot)
+                if (nextBtn != null && context != null && container != null) {
+                    val profile = UserProfileManager.getInstance(context).profile.value
+                    val baseResume = container.baseResumeRepository.getBaseResume()
+                    val storedAnswers = container.applicantAnswerDao.getAll().associate {
+                        it.questionPattern.lowercase().trim() to it.answer.trim()
+                    }
+                    val payloadMap = buildPayloadValueMap(profile, baseResume, storedAnswers)
+
+                    var missingRequired = false
+                    var missingLabel = ""
+                    for (ctrl in gatekeeperSnapshot) {
+                        if (ctrl.elementId == nextBtn.elementId) continue
+                        val tag = ctrl.tag.lowercase()
+                        val type = ctrl.type.lowercase()
+                        if (tag !in setOf("input", "select", "textarea") || type in setOf("button", "submit", "file", "hidden")) continue
+                        if (CourierApplyTriggerFinder.isNewsletterOrMarketingTrap(ctrl)) continue
+
+                        val key = matchDeterministicPayloadKey(ctrl)
+                        val value = if (key != null) payloadMap[key]?.trim().orEmpty() else ""
+                        if (value.isNotBlank()) {
+                            webHost.fillElementValueSafely(task.taskId, ctrl.elementId, value)
+                            humanPaceDelay()
+                        } else if (ctrl.required) {
+                            missingRequired = true
+                            missingLabel = ctrl.label.ifBlank { ctrl.name.ifBlank { "Required gatekeeper field" } }
+                        }
+                    }
+
+                    if (missingRequired) {
+                        return NavigationOutcome(
+                            formReached = false,
+                            currentUrl = currentUrl,
+                            blockedReason = CourierBlockedReason.MISSING_REQUIRED_FIELDS,
+                            detail = "Gatekeeper step requires missing user input: $missingLabel",
+                        )
+                    }
+
+                    webHost.clickElementSafely(task.taskId, nextBtn.elementId)
+                    delay(1500L)
+                    currentUrl = webHost.getCurrentUrl(task.taskId).ifBlank { currentUrl }
+                    val postNextSnapshot = webHost.extractDomSnapshot(task.taskId)
+                    if (CourierApplyTriggerFinder.isApplicationFormVisible(postNextSnapshot, currentUrl) ||
+                        CourierGuardrails.findResumeFileInput(postNextSnapshot) != null
+                    ) {
+                        return NavigationOutcome(
+                            formReached = true,
+                            currentUrl = currentUrl,
+                            detail = "Progressed through gatekeeper step '${nextBtn.label}'",
+                        )
+                    }
+                }
+            }
+
+            // -------------------------------------------------------------
+            // Stage C: Apply Button Discovery (strict positive/negative scoring)
+            // -------------------------------------------------------------
+            val selection = CourierApplyTriggerFinder.selectApplyTrigger(gatekeeperSnapshot, currentUrl)
             var chosenCandidate: DomControlSnapshot? = selection.selectedCandidate
 
-            // Call model ONLY if top two scores are within threshold or none pass, sending only pruned candidates
             if (chosenCandidate == null && selection.needsModelTieBreak && selection.prunedCandidates.isNotEmpty()) {
                 val planned = courierModel.planAction(
                     candidates = selection.prunedCandidates,
@@ -329,7 +448,9 @@ object CourierPipelineExecutor {
                 delay(1200L)
                 currentUrl = webHost.getCurrentUrl(task.taskId).ifBlank { currentUrl }
                 val postClickSnapshot = webHost.extractDomSnapshot(task.taskId)
-                if (CourierApplyTriggerFinder.isApplicationFormVisible(postClickSnapshot, currentUrl)) {
+                if (CourierApplyTriggerFinder.isApplicationFormVisible(postClickSnapshot, currentUrl) ||
+                    CourierGuardrails.findResumeFileInput(postClickSnapshot) != null
+                ) {
                     return NavigationOutcome(
                         formReached = true,
                         currentUrl = currentUrl,
@@ -337,16 +458,98 @@ object CourierPipelineExecutor {
                     )
                 }
             } else {
-                // Check direct ATS adapter apply URL (Lever {job}/apply, Ashby .../application)
                 val directApplyUrl = CourierApplyTriggerFinder.deriveDirectAtsApplyUrl(currentUrl)
                 if (directApplyUrl != null && directApplyUrl != currentUrl) {
                     currentUrl = webHost.loadUrlAndWait(task.taskId, directApplyUrl) ?: directApplyUrl
                     val postLoadSnapshot = webHost.extractDomSnapshot(task.taskId)
-                    if (CourierApplyTriggerFinder.isApplicationFormVisible(postLoadSnapshot, currentUrl)) {
+                    if (CourierApplyTriggerFinder.isApplicationFormVisible(postLoadSnapshot, currentUrl) ||
+                        CourierGuardrails.findResumeFileInput(postLoadSnapshot) != null
+                    ) {
                         return NavigationOutcome(
                             formReached = true,
                             currentUrl = currentUrl,
                             detail = "Reached form via direct ATS apply URL",
+                        )
+                    }
+                }
+            }
+
+            // -------------------------------------------------------------
+            // Stage D: Grounded Gemini Troubleshooter Fallback
+            // -------------------------------------------------------------
+            val fallbackSnapshot = webHost.extractDomSnapshot(task.taskId)
+            val assessment = courierModel.troubleshootPage(
+                snapshot = fallbackSnapshot,
+                currentUrl = currentUrl,
+                escalate = attempt > 1,
+            ).getOrNull()
+
+            if (assessment != null) {
+                when (assessment.category) {
+                    TroubleshooterCategory.APPLICATION_FORM -> {
+                        return NavigationOutcome(
+                            formReached = true,
+                            currentUrl = currentUrl,
+                            detail = "Model identified visible application form: ${assessment.explanation}",
+                        )
+                    }
+                    TroubleshooterCategory.GUEST_FLOW -> {
+                        val actionId = assessment.actionElementId
+                        if (actionId != null) {
+                            webHost.clickElementSafely(task.taskId, actionId)
+                            delay(1500L)
+                            currentUrl = webHost.getCurrentUrl(task.taskId).ifBlank { currentUrl }
+                            val postModelSnapshot = webHost.extractDomSnapshot(task.taskId)
+                            if (CourierApplyTriggerFinder.isApplicationFormVisible(postModelSnapshot, currentUrl) ||
+                                CourierGuardrails.findResumeFileInput(postModelSnapshot) != null
+                            ) {
+                                return NavigationOutcome(
+                                    formReached = true,
+                                    currentUrl = currentUrl,
+                                    detail = "Reached form via model-directed guest flow",
+                                )
+                            }
+                        }
+                    }
+                    TroubleshooterCategory.GATEKEEPER -> {
+                        val actionId = assessment.actionElementId
+                        if (actionId != null && context != null && container != null) {
+                            val profile = UserProfileManager.getInstance(context).profile.value
+                            val baseResume = container.baseResumeRepository.getBaseResume()
+                            val storedAnswers = container.applicantAnswerDao.getAll().associate {
+                                it.questionPattern.lowercase().trim() to it.answer.trim()
+                            }
+                            val payloadMap = buildPayloadValueMap(profile, baseResume, storedAnswers)
+                            for (ctrl in fallbackSnapshot) {
+                                if (ctrl.elementId == actionId) continue
+                                val key = matchDeterministicPayloadKey(ctrl)
+                                val value = if (key != null) payloadMap[key]?.trim().orEmpty() else ""
+                                if (value.isNotBlank()) {
+                                    webHost.fillElementValueSafely(task.taskId, ctrl.elementId, value)
+                                    humanPaceDelay()
+                                }
+                            }
+                            webHost.clickElementSafely(task.taskId, actionId)
+                            delay(1500L)
+                            currentUrl = webHost.getCurrentUrl(task.taskId).ifBlank { currentUrl }
+                            val postModelSnapshot = webHost.extractDomSnapshot(task.taskId)
+                            if (CourierApplyTriggerFinder.isApplicationFormVisible(postModelSnapshot, currentUrl) ||
+                                CourierGuardrails.findResumeFileInput(postModelSnapshot) != null
+                            ) {
+                                return NavigationOutcome(
+                                    formReached = true,
+                                    currentUrl = currentUrl,
+                                    detail = "Progressed through model-diagnosed gatekeeper",
+                                )
+                            }
+                        }
+                    }
+                    TroubleshooterCategory.HARD_BLOCK -> {
+                        return NavigationOutcome(
+                            formReached = false,
+                            currentUrl = currentUrl,
+                            blockedReason = CourierBlockedReason.LOGIN_REQUIRED,
+                            detail = assessment.explanation.ifBlank { "Model identified hard login or access barrier" },
                         )
                     }
                 }
@@ -357,7 +560,7 @@ object CourierPipelineExecutor {
             formReached = false,
             currentUrl = currentUrl,
             blockedReason = CourierBlockedReason.NO_APPLY_PATH,
-            detail = "Failed to locate application form after 2 navigation attempts",
+            detail = "Failed to locate application form after 4-stage troubleshooting",
         )
     }
 
@@ -428,6 +631,9 @@ object CourierPipelineExecutor {
                 continue
             }
             if (type in setOf("file", "button", "submit", "reset", "hidden")) {
+                continue
+            }
+            if (CourierApplyTriggerFinder.isNewsletterOrMarketingTrap(ctrl)) {
                 continue
             }
 

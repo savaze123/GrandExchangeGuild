@@ -253,6 +253,8 @@ class CourierQueueWorker(
             task = task,
             webHost = webHost,
             courierModel = container.courierModel,
+            container = container,
+            context = applicationContext,
         )
         if (!navOutcome.formReached) {
             return pauseBlocked(

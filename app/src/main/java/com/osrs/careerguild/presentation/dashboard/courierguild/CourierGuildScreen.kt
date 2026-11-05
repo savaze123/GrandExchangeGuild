@@ -187,13 +187,34 @@ fun CourierGuildScreen(
     var showLocalQuestModal by remember { mutableStateOf(false) }
 
     val applications = remember {
-        mutableStateListOf(
-            QueuedApplication("app_1", "Stripe", "Core Infrastructure & Payments API Engineer", "Greenhouse", "https://boards.greenhouse.io/stripe", "ATS_Resume_stripe.pdf", ApplicationStatus.QUEUED),
-            QueuedApplication("app_2", "OpenAI", "AI Research & Agent Infrastructure Engineer", "Ashby", "https://jobs.ashbyhq.com/openai", "ATS_Resume_openai.pdf", ApplicationStatus.IN_TRANSIT),
-            QueuedApplication("app_3", "Anthropic", "Prompt Systems & API Backend Engineer", "Greenhouse", "https://boards.greenhouse.io/anthropic", "ATS_Resume_anthropic.pdf", ApplicationStatus.SUBMITTED),
-            QueuedApplication("app_4", "Cloudflare", "Distributed Systems & Data Platform Engineer", "Greenhouse", "https://boards.greenhouse.io/cloudflare", "ATS_Resume_cloudflare.pdf", ApplicationStatus.INTERVIEWING),
-            QueuedApplication("app_5", "Databricks", "Staff Android & CoreOS Systems Engineer", "Greenhouse", "https://boards.greenhouse.io/databricks", "ATS_Resume_databricks.pdf", ApplicationStatus.QUEUED),
-        )
+        mutableStateListOf<QueuedApplication>()
+    }
+
+    // Sync persistent Room tasks into the applications queue without synthetic leakage
+    androidx.compose.runtime.LaunchedEffect(persistedTasks) {
+        for (task in persistedTasks) {
+            if (applications.none { it.id == task.jobId || it.forgeTaskId == task.taskId }) {
+                applications.add(
+                    QueuedApplication(
+                        id = task.jobId,
+                        company = task.company,
+                        title = task.title,
+                        platform = task.ats.replaceFirstChar { it.uppercase() },
+                        atsUrl = task.jobUrl,
+                        attachedPdf = task.resumePdfPath?.substringAfterLast("/")?.ifBlank { "resume.pdf" } ?: "resume.pdf",
+                        status = when (task.status) {
+                            CourierTaskStatus.QUEUED.name -> ApplicationStatus.QUEUED
+                            CourierTaskStatus.FORGING.name, CourierTaskStatus.NAVIGATING.name, CourierTaskStatus.FILLING.name -> ApplicationStatus.IN_TRANSIT
+                            CourierTaskStatus.SUBMITTING.name, CourierTaskStatus.SUBMITTED.name -> ApplicationStatus.SUBMITTED
+                            CourierTaskStatus.BLOCKED_NEEDS_INPUT.name, CourierTaskStatus.AWAITING_REVIEW.name, CourierTaskStatus.SNOOZED.name -> ApplicationStatus.AWAITING_REVIEW
+                            else -> ApplicationStatus.QUEUED
+                        },
+                        allowAutoSubmit = task.submitPolicy.equals("AUTO_SUBMIT", ignoreCase = true),
+                        forgeTaskId = task.taskId,
+                    )
+                )
+            }
+        }
     }
 
     // Append incoming job if sent from Bounty Board / Scribe Tower (excluding LinkedIn listings)

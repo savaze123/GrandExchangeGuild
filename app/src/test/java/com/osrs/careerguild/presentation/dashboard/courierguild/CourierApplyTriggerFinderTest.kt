@@ -15,6 +15,7 @@ class CourierApplyTriggerFinderTest {
         name: String = "",
         id: String = "",
         label: String = "",
+        placeholder: String = "",
         hrefPath: String = "",
         containerHint: String = "main",
     ) = DomControlSnapshot(
@@ -24,7 +25,7 @@ class CourierApplyTriggerFinderTest {
         name = name,
         id = id,
         label = label,
-        placeholder = "",
+        placeholder = placeholder,
         options = emptyList(),
         required = false,
         maxLength = 0,
@@ -186,5 +187,101 @@ class CourierApplyTriggerFinderTest {
         assertNull(evaluation.selectedCandidate)
         assertTrue(evaluation.needsModelTieBreak)
         assertEquals(2, evaluation.scoredCandidates.size)
+    }
+
+    @Test
+    fun `hard-bans url shorteners and in-prose job description links`() {
+        val shortener = control(
+            elementId = "cg_short",
+            tag = "a",
+            label = "Check out our culture",
+            hrefPath = "https://tinyurl.com/culture-doc",
+            containerHint = "p.job-description",
+        )
+        assertTrue(CourierApplyTriggerFinder.isHardExcluded(shortener))
+
+        val bitly = control(
+            elementId = "cg_bitly",
+            tag = "a",
+            label = "Learn more",
+            hrefPath = "https://bit.ly/3xyz",
+            containerHint = "div.description",
+        )
+        assertTrue(CourierApplyTriggerFinder.isHardExcluded(bitly))
+
+        val proseLink = control(
+            elementId = "cg_prose",
+            tag = "a",
+            label = "Read engineering blog",
+            hrefPath = "https://blog.acme.invalid/engineering",
+            containerHint = "article.job-description p",
+        )
+        assertTrue(CourierApplyTriggerFinder.isHardExcluded(proseLink))
+
+        val footerLink = control(
+            elementId = "cg_footer",
+            tag = "a",
+            label = "Stripe email updates",
+            hrefPath = "https://stripe.com/news",
+            containerHint = "footer.site-footer",
+        )
+        assertTrue(CourierApplyTriggerFinder.isHardExcluded(footerLink))
+    }
+
+    @Test
+    fun `detects and isolates newsletter and marketing inputs`() {
+        val newsletterEmail = control(
+            elementId = "cg_news_input",
+            tag = "input",
+            type = "email",
+            name = "subscriber_email",
+            label = "Subscribe to our engineering newsletter",
+            placeholder = "Enter your email",
+            containerHint = "newsletter_trap form.newsletter-signup",
+        )
+        assertTrue(CourierApplyTriggerFinder.isNewsletterOrMarketingTrap(newsletterEmail))
+
+        val legitimateEmail = control(
+            elementId = "cg_real_email",
+            tag = "input",
+            type = "email",
+            name = "email",
+            label = "Email Address *",
+            placeholder = "name@example.com",
+            containerHint = "form#application_form fieldset.personal-info",
+        )
+        org.junit.Assert.assertFalse(CourierApplyTriggerFinder.isNewsletterOrMarketingTrap(legitimateEmail))
+    }
+
+    @Test
+    fun `detects guest apply and gatekeeper components correctly`() {
+        val guestBtn = control(
+            elementId = "cg_guest",
+            tag = "button",
+            label = "Apply as guest without account",
+            containerHint = "div.auth-options",
+        )
+        val foundGuest = CourierGuardrails.findGuestApplyTrigger(listOf(guestBtn))
+        assertNotNull(foundGuest)
+        assertEquals("cg_guest", foundGuest!!.elementId)
+
+        val resumeFile = control(
+            elementId = "cg_resume_drop",
+            tag = "input",
+            type = "file",
+            label = "Attach resume / CV",
+            containerHint = "div.dropzone",
+        )
+        val foundResume = CourierGuardrails.findResumeFileInput(listOf(resumeFile))
+        assertNotNull(foundResume)
+        assertEquals("cg_resume_drop", foundResume!!.elementId)
+
+        val gatekeeperControls = listOf(
+            control(elementId = "g_email", tag = "input", type = "email", name = "email", label = "Your Email"),
+            control(elementId = "g_name", tag = "input", type = "text", name = "first_name", label = "First Name"),
+            control(elementId = "g_next", tag = "button", label = "Next", containerHint = "div.actions"),
+        )
+        assertTrue(CourierGuardrails.isMultiStepGatekeeper(gatekeeperControls))
+        assertEquals("g_next", CourierGuardrails.findGatekeeperNextButton(gatekeeperControls)?.elementId)
     }
 }

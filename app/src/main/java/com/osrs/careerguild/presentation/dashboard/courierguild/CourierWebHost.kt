@@ -539,6 +539,43 @@ class CourierWebHost(
         return res == "CLICKED"
     }
 
+    /**
+     * Smoothly scrolls the page to a given ratio (0.0 = top, 0.5 = middle, 1.0 = bottom).
+     */
+    suspend fun scrollPage(taskId: String, ratio: Float): Boolean {
+        val r = ratio.coerceIn(0f, 1f)
+        val res = evaluateJs(
+            taskId,
+            """
+            (function() {
+                try {
+                    const maxH = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+                    window.scrollTo({
+                        top: maxH * $r,
+                        behavior: 'instant'
+                    });
+                    return "SCROLLED";
+                } catch (e) {
+                    return "ERROR";
+                }
+            })();
+            """.trimIndent()
+        )
+        return res == "SCROLLED"
+    }
+
+    /**
+     * Troubleshooting Stage A: Scrolls to the middle and bottom to reveal lazy-loaded dropzones
+     * or "Guest Apply" buttons, returning a fresh DOM snapshot.
+     */
+    suspend fun scrollToBottomAndScan(taskId: String): List<DomControlSnapshot> {
+        scrollPage(taskId, 0.5f)
+        kotlinx.coroutines.delay(350L)
+        scrollPage(taskId, 1.0f)
+        kotlinx.coroutines.delay(400L)
+        return extractDomSnapshot(taskId)
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun createConfiguredWebView(slotIndex: Int, taskId: String): WebView {
         val wv = WebView(appContext)
@@ -734,10 +771,13 @@ class CourierWebHost(
                     return (t || '').replace(/\s+/g, ' ').trim().substring(0, 140);
                 }
                 function containerHintFor(el) {
-                    const c = el.closest('form, section, aside, footer, header, nav, [class*="newsletter"], [class*="cookie"], [class*="alert"], [class*="subscribe"], [class*="modal"]');
+                    const c = el.closest('form, section, aside, footer, header, nav, [class*="newsletter"], [class*="cookie"], [class*="alert"], [class*="subscribe"], [class*="modal"], [class*="marketing"], [class*="footer"], .job-description, .description, #job-description, article');
                     if (!c) return '';
-                    return ((c.tagName || '') + ' ' + (c.id || '') + ' ' + (c.className || '') + ' ' + (c.getAttribute('aria-label') || ''))
-                        .replace(/\s+/g, ' ').trim().substring(0, 100);
+                    let nearby = '';
+                    const heading = c.querySelector('h1, h2, h3, h4, legend, .title, [class*="title"]');
+                    if (heading) nearby = ' ' + (heading.innerText || heading.textContent || '').substring(0, 40);
+                    return ((c.tagName || '') + ' ' + (c.id || '') + ' ' + (c.className || '') + ' ' + (c.getAttribute('aria-label') || '') + nearby)
+                        .replace(/\s+/g, ' ').trim().substring(0, 120);
                 }
                 const nodes = Array.from(document.querySelectorAll(
                     'input, select, textarea, button, a[href], [role="button"], [role="combobox"], [role="listbox"]'
@@ -752,13 +792,29 @@ class CourierWebHost(
                     if (!isVisibleAndReal(el, isFile)) continue;
                     const lbl = labelFor(el);
                     if (disclaimerRe.test(lbl)) continue;
+
+                    const href = tag === 'a' ? (el.getAttribute('href') || '').substring(0, 140) : '';
+                    const isShortener = /tinyurl\.com|bit\.ly|t\.co|lnkd\.in|goo\.gl|ow\.ly|buff\.ly/i.test(href);
+                    const isMailto = /^mailto:|^tel:|^javascript:/i.test(href);
+                    if (isShortener || isMailto) continue; // Hard-ban shorteners and mailto/tel links
+
+                    const inJdProse = tag === 'a' && !!el.closest('.job-description, .description, #job-description, [data-qa="job-description"], article p, .content p, .job-details, .jd-content, footer, aside');
+                    if (inJdProse && !/\bapply\b/i.test(lbl)) continue; // Quarantine in-prose / footer links
+
+                    let hint = containerHintFor(el);
+                    const isNewsletterTrap = /newsletter|subscribe|job[-_ ]?alert|marketing|insights|email[-_ ]?updates/i.test(
+                        hint + ' ' + (el.name || '') + ' ' + (el.id || '') + ' ' + (el.placeholder || '') + ' ' + lbl
+                    );
+                    if (isNewsletterTrap) {
+                        hint = 'newsletter_trap ' + hint;
+                    }
+
                     const elId = 'cg_el_' + idx++;
                     el.setAttribute('data-cg-el', elId);
                     const opts = tag === 'select'
                         ? Array.from(el.options).slice(0, 16).map(o => (o.text || o.value || '').trim()).filter(Boolean)
                         : [];
                     const req = !!(el.required || el.getAttribute('aria-required') === 'true' || /\*/.test(lbl));
-                    const href = tag === 'a' ? (el.getAttribute('href') || '').substring(0, 140) : '';
                     const hasVal = tag === 'select' ? el.selectedIndex > 0 : !!(el.value && el.value.trim().length > 0);
                     out.push({
                         el_id: elId,
@@ -771,7 +827,7 @@ class CourierWebHost(
                         options: opts,
                         required: req,
                         maxLength: el.maxLength > 0 ? el.maxLength : 0,
-                        containerHint: containerHintFor(el),
+                        containerHint: hint,
                         hrefPath: href,
                         currentValuePresent: hasVal
                     });

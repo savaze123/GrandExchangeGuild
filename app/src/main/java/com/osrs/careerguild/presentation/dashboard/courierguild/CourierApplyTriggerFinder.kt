@@ -26,17 +26,30 @@ object CourierApplyTriggerFinder {
         "appassets.androidplatform.net",
     )
 
+    val URL_SHORTENER_REGEX = Regex(
+        "tinyurl\\.com|bit\\.ly|t\\.co|lnkd\\.in|goo\\.gl|ow\\.ly|buff\\.ly",
+        RegexOption.IGNORE_CASE
+    )
+
     private val NEGATIVE_CONTAINER_REGEX = Regex(
         "newsletter|subscribe|job[-_ ]?alert|notify[-_ ]?me|sign[-_ ]?up[-_ ]?for[-_ ]?updates|" +
-            "email[-_ ]?capture|stay[-_ ]?connected|talent[-_ ]?community|cookie|gdpr|onetrust|consent",
+            "email[-_ ]?capture|stay[-_ ]?connected|talent[-_ ]?community|cookie|gdpr|onetrust|consent|" +
+            "marketing|insights|email[-_ ]?updates",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val QUARANTINED_CONTAINER_REGEX = Regex(
+        "quarantined|job[-_ ]?description|description|article|footer|aside|sidebar|jd[-_ ]?content|job[-_ ]?details",
         RegexOption.IGNORE_CASE
     )
 
     private val NEGATIVE_LABEL_OR_HREF_REGEX = Regex(
-        "^mailto:|^tel:|^javascript:|\\bsave (this )?job\\b|\\bshare\\b|\\brefer a friend\\b|" +
+        "^mailto:|^tel:|^javascript:|tinyurl\\.com|bit\\.ly|t\\.co|lnkd\\.in|" +
+            "\\bsave (this )?job\\b|\\bshare\\b|\\brefer a friend\\b|" +
             "\\bsign in\\b|\\blog in\\b|\\bcreate account\\b|\\bprivacy( policy)?\\b|" +
             "\\bterms( of (service|use))?\\b|\\bsubscribe\\b|\\bnewsletter\\b|" +
-            "\\bjob alert\\b|\\bnotify me\\b|\\bsign up for updates\\b",
+            "\\bjob alert\\b|\\bnotify me\\b|\\bsign up for updates\\b|\\bemail updates\\b|" +
+            "\\binsights\\b|\\bmarketing\\b",
         RegexOption.IGNORE_CASE
     )
 
@@ -110,7 +123,8 @@ object CourierApplyTriggerFinder {
     }
 
     /**
-     * Hard-excludes newsletter traps, job alerts, mailto/tel links, auth links, legal links, and non-ATS offsite links.
+     * Hard-excludes newsletter traps, job alerts, mailto/tel links, auth links, legal links,
+     * URL shorteners, in-prose JD links, footer/aside links, and non-ATS offsite links.
      */
     fun isHardExcluded(candidate: DomControlSnapshot, currentUrl: String = ""): Boolean {
         val tag = candidate.tag.lowercase()
@@ -120,13 +134,25 @@ object CourierApplyTriggerFinder {
             candidate.containerHint.contains("button", ignoreCase = true)
         if (!isClickable) return true
 
-        val combinedContainer = "${candidate.containerHint} ${candidate.name} ${candidate.id}"
-        if (NEGATIVE_CONTAINER_REGEX.containsMatchIn(combinedContainer)) return true
-
         val label = candidate.label.trim()
         val href = candidate.hrefPath.trim()
+        val combinedContainer = "${candidate.containerHint} ${candidate.name} ${candidate.id}"
+
+        // 1. Hard-ban URL shorteners and mailto/tel/javascript links
+        if (URL_SHORTENER_REGEX.containsMatchIn(href) || URL_SHORTENER_REGEX.containsMatchIn(label)) {
+            return true
+        }
         if (NEGATIVE_LABEL_OR_HREF_REGEX.containsMatchIn(label) || NEGATIVE_LABEL_OR_HREF_REGEX.containsMatchIn(href)) {
             return true
+        }
+
+        // 2. Hard-ban newsletter/marketing/subscription containers
+        if (NEGATIVE_CONTAINER_REGEX.containsMatchIn(combinedContainer)) return true
+
+        // 3. Hard-ban in-prose job description links, footers, and sidebars for <a> tags
+        if (tag == "a" && QUARANTINED_CONTAINER_REGEX.containsMatchIn(combinedContainer)) {
+            val isExplicitApply = EXACT_APPLY_LABELS.any { it.equals(label, ignoreCase = true) }
+            if (!isExplicitApply) return true
         }
 
         if (href.startsWith("http://", ignoreCase = true) || href.startsWith("https://", ignoreCase = true)) {
@@ -147,6 +173,18 @@ object CourierApplyTriggerFinder {
         }
 
         return false
+    }
+
+    /**
+     * Returns true if the control belongs to a newsletter, subscription, or marketing capture form.
+     */
+    fun isNewsletterOrMarketingTrap(ctrl: DomControlSnapshot): Boolean {
+        val text = "${ctrl.containerHint} ${ctrl.label} ${ctrl.placeholder} ${ctrl.name} ${ctrl.id}".lowercase()
+        return Regex(
+            "newsletter|subscribe|job[-_ ]?alert|notify[-_ ]?me|sign[-_ ]?up[-_ ]?for[-_ ]?updates|" +
+                "email[-_ ]?updates|stay[-_ ]?connected|talent[-_ ]?community|insights|marketing",
+            RegexOption.IGNORE_CASE
+        ).containsMatchIn(text)
     }
 
     /**
