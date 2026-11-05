@@ -23,6 +23,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -279,7 +280,8 @@ class CourierWebHost(
     }
 
     /**
-     * Navigates the task's WebView to [url] on `Dispatchers.Main` and waits for `onPageFinished`.
+     * Navigates the task's WebView to [url] on `Dispatchers.Main` and waits for `onPageFinished`,
+     * then awaits DOM settlement (ensuring readiness and SPA loading spinners complete).
      */
     suspend fun loadUrlAndWait(
         taskId: String,
@@ -300,7 +302,31 @@ class CourierWebHost(
         val loadedUrl = withTimeoutOrNull(timeoutMs) {
             deferred.await()
         }
+        waitForDomSettle(taskId)
         return loadedUrl ?: getCurrentUrl(taskId)
+    }
+
+    /**
+     * Waits for DOM readiness and SPA mounting/spinners to settle after page navigation.
+     */
+    suspend fun waitForDomSettle(taskId: String, maxWaitMs: Long = 2500L) {
+        val checkScript = """
+            (function() {
+                if (document.readyState === 'loading') return 'loading';
+                var busy = document.querySelector('[aria-busy="true"], .spinner, .loading-spinner, .app-loader, .loading-indicator');
+                return busy ? 'busy' : 'ready';
+            })()
+        """.trimIndent()
+
+        val start = System.currentTimeMillis()
+        while (System.currentTimeMillis() - start < maxWaitMs) {
+            val status = evaluateJs(taskId, checkScript)
+            if (status == "ready") {
+                break
+            }
+            delay(150L)
+        }
+        delay(350L)
     }
 
     suspend fun getCurrentUrl(taskId: String): String = withContext(Dispatchers.Main) {

@@ -257,11 +257,17 @@ class CourierQueueWorker(
             context = applicationContext,
         )
         if (!navOutcome.formReached) {
+            val blockedReason = navOutcome.blockedReason ?: CourierBlockedReason.NO_APPLY_PATH
+            val blockedFields = if (navOutcome.detail.isNotBlank()) {
+                listOf(navOutcome.detail)
+            } else {
+                listOf("Apply button / form not found after 2 attempts")
+            }
             return pauseBlocked(
                 task = task.copy(currentUrl = navOutcome.currentUrl),
                 slotIndex = slotIndex,
-                reason = navOutcome.blockedReason ?: CourierBlockedReason.NO_APPLY_PATH,
-                blockedFields = listOf("Apply button / form not found after 2 attempts"),
+                reason = blockedReason,
+                blockedFields = blockedFields,
                 errorMsg = navOutcome.detail,
                 container = container,
             )

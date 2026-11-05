@@ -45,7 +45,7 @@ object CourierGuardrails {
     )
 
     private val GATEKEEPER_NEXT_REGEX = Regex(
-        "^next$|^continue$|^proceed$|^start application$|^get started$|^save & continue$|^save and continue$|^next step$|^submit email$",
+        "^next\\b|^continue\\b|^proceed\\b|^start application\\b|^get started\\b|save & continue|save and continue|next step|submit email",
         RegexOption.IGNORE_CASE
     )
 
@@ -97,7 +97,7 @@ object CourierGuardrails {
                 !CourierApplyTriggerFinder.isNewsletterOrMarketingTrap(it)
         }
         val hasPassword = fillable.any { it.type.equals("password", ignoreCase = true) }
-        return !hasPassword && fillable.size in 1..5
+        return !hasPassword && fillable.size in 1..8
     }
 
     /** Hosts of external assessment / one-way video interview vendors. */

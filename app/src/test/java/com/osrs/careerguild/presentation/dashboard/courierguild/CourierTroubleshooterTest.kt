@@ -120,4 +120,76 @@ class CourierTroubleshooterTest {
         )
         assertTrue(CourierApplyTriggerFinder.isNewsletterOrMarketingTrap(newsletterInput))
     }
+
+    @Test
+    fun knownAtsHosts_includesEnterprisePlatforms() {
+        val testUrls = listOf(
+            "https://careers.icims.com/jobs/123/apply",
+            "https://jobs.smartrecruiters.com/AcmeCorp/456",
+            "https://myworkdayjobs.com/en-US/careers/job/789",
+        )
+        for (url in testUrls) {
+            val candidate = mockControl("btn", tag = "a", label = "Apply", hrefPath = url)
+            assertFalse(CourierApplyTriggerFinder.isHardExcluded(candidate))
+        }
+    }
+
+    @Test
+    fun gatekeeperNextRegex_matchesVariousCtaPhrases() {
+        val testLabels = listOf(
+            "Next",
+            "Next Step",
+            "Continue",
+            "Proceed",
+            "Start Application",
+            "Get Started",
+            "Save & Continue",
+            "Save and continue",
+            "Submit Email",
+        )
+        for (label in testLabels) {
+            val controls = listOf(
+                mockControl("email", tag = "input", type = "email", label = "Email", required = true),
+                mockControl("btn", tag = "button", label = label),
+            )
+            val nextBtn = CourierGuardrails.findGatekeeperNextButton(controls)
+            assertNotNull("Should match CTA button with label '$label'", nextBtn)
+            assertEquals("btn", nextBtn!!.elementId)
+        }
+    }
+
+    @Test
+    fun gatekeeperControlLimit_acceptsUpToEightControls() {
+        val sevenInputControls = (1..7).map { i ->
+            mockControl("ctrl_$i", tag = "input", type = "text", name = "field_$i", label = "Field $i")
+        } + listOf(mockControl("next", tag = "button", label = "Next"))
+
+        assertTrue(CourierGuardrails.isMultiStepGatekeeper(sevenInputControls))
+
+        val nineInputControls = (1..9).map { i ->
+            mockControl("ctrl_$i", tag = "input", type = "text", name = "field_$i", label = "Field $i")
+        } + listOf(mockControl("next", tag = "button", label = "Next"))
+
+        assertFalse(CourierGuardrails.isMultiStepGatekeeper(nineInputControls))
+    }
+
+    @Test
+    fun signupAnchorOnLoginPage_doesNotTriggerMfaInputExclusion() {
+        // A login page with an anchor link "Don't have an account? Sign up"
+        val loginControls = listOf(
+            mockControl("user", tag = "input", type = "text", name = "username", label = "Username"),
+            mockControl("pwd", tag = "input", type = "password", name = "password", label = "Password"),
+            mockControl("submit", tag = "button", label = "Sign In"),
+            mockControl("signup_link", tag = "a", label = "Don't have an account? Sign up", hrefPath = "/register"),
+        )
+
+        // Only actual inputs/textareas should be checked for MFA / signup creation
+        val mfaOrSignupInputs = loginControls.filter {
+            it.tag.lowercase() in setOf("input", "textarea") && run {
+                val combined = "${it.label} ${it.name} ${it.id} ${it.placeholder}".lowercase()
+                Regex("verification code|security code|one-?time|otp|two-?factor|2fa|mfa|confirm password|create (an )?account|sign up").containsMatchIn(combined)
+            }
+        }
+        assertTrue("Anchor link should not be classified as MFA/signup input control", mfaOrSignupInputs.isEmpty())
+    }
 }

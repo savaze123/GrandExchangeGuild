@@ -23,6 +23,9 @@ object CourierApplyTriggerFinder {
         "jobs.ashbyhq.com",
         "workable.com",
         "apply.workable.com",
+        "icims.com",
+        "smartrecruiters.com",
+        "myworkdayjobs.com",
         "appassets.androidplatform.net",
     )
 

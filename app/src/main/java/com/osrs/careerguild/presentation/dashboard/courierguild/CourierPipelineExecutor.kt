@@ -213,8 +213,30 @@ object CourierPipelineExecutor {
                 it.name.contains("password", ignoreCase = true)
         }
         val mfaOrSignupControls = snapshot.filter {
-            val combined = "${it.label} ${it.name} ${it.id} ${it.placeholder}".lowercase()
-            Regex("verification code|security code|one-?time|otp|two-?factor|2fa|mfa|confirm password|create (an )?account|sign up").containsMatchIn(combined)
+            it.tag.lowercase() in setOf("input", "textarea") && run {
+                val combined = "${it.label} ${it.name} ${it.id} ${it.placeholder}".lowercase()
+                Regex("verification code|security code|one-?time|otp|two-?factor|2fa|mfa|confirm password|create (an )?account|sign up").containsMatchIn(combined)
+            }
+        }
+
+        if (passwordControls.isNotEmpty() || mfaOrSignupControls.isNotEmpty()) {
+            // Stage A: Scroll and scan for Resume Dropzone / Guest Apply BEFORE declaring LOGIN_REQUIRED
+            val scrolledSnapshot = webHost.scrollToBottomAndScan(task.taskId)
+            val guestApplyBtn = CourierGuardrails.findGuestApplyTrigger(scrolledSnapshot)
+            val resumeInput = CourierGuardrails.findResumeFileInput(scrolledSnapshot)
+
+            if (guestApplyBtn != null) {
+                webHost.clickElementSafely(task.taskId, guestApplyBtn.elementId)
+                delay(1500L)
+                val afterGuest = webHost.extractDomSnapshot(task.taskId)
+                if (afterGuest.none { it.type.equals("password", ignoreCase = true) } ||
+                    CourierGuardrails.findResumeFileInput(afterGuest) != null
+                ) {
+                    return null // Successfully bypassed login wall via Guest Apply!
+                }
+            } else if (resumeInput != null) {
+                return null // Resume upload dropzone is already available on the page; bypass login!
+            }
         }
 
         if (mfaOrSignupControls.isNotEmpty() && passwordControls.isNotEmpty()) {
@@ -231,24 +253,6 @@ object CourierPipelineExecutor {
                 ?: container.courierAccountDao.findByPortalOrCompany(task.jobUrl, task.company)
 
             if (savedAccount == null) {
-                // Stage A: Scroll and scan for Resume Dropzone / Guest Apply BEFORE declaring LOGIN_REQUIRED
-                val scrolledSnapshot = webHost.scrollToBottomAndScan(task.taskId)
-                val guestApplyBtn = CourierGuardrails.findGuestApplyTrigger(scrolledSnapshot)
-                val resumeInput = CourierGuardrails.findResumeFileInput(scrolledSnapshot)
-
-                if (guestApplyBtn != null) {
-                    webHost.clickElementSafely(task.taskId, guestApplyBtn.elementId)
-                    delay(1500L)
-                    val afterGuest = webHost.extractDomSnapshot(task.taskId)
-                    if (afterGuest.none { it.type.equals("password", ignoreCase = true) } ||
-                        CourierGuardrails.findResumeFileInput(afterGuest) != null
-                    ) {
-                        return null // Successfully bypassed login wall via Guest Apply!
-                    }
-                } else if (resumeInput != null) {
-                    return null // Resume upload dropzone is already available on the page; bypass login!
-                }
-
                 return EarlyBlockOutcome(
                     reason = CourierBlockedReason.LOGIN_REQUIRED,
                     blockedFields = listOf("Login credentials required for ${task.company}"),
@@ -520,15 +524,36 @@ object CourierPipelineExecutor {
                                 it.questionPattern.lowercase().trim() to it.answer.trim()
                             }
                             val payloadMap = buildPayloadValueMap(profile, baseResume, storedAnswers)
+
+                            var missingRequired = false
+                            var missingLabel = ""
                             for (ctrl in fallbackSnapshot) {
                                 if (ctrl.elementId == actionId) continue
+                                val tag = ctrl.tag.lowercase()
+                                val type = ctrl.type.lowercase()
+                                if (tag !in setOf("input", "select", "textarea") || type in setOf("button", "submit", "file", "hidden")) continue
+                                if (CourierApplyTriggerFinder.isNewsletterOrMarketingTrap(ctrl)) continue
+
                                 val key = matchDeterministicPayloadKey(ctrl)
                                 val value = if (key != null) payloadMap[key]?.trim().orEmpty() else ""
                                 if (value.isNotBlank()) {
                                     webHost.fillElementValueSafely(task.taskId, ctrl.elementId, value)
                                     humanPaceDelay()
+                                } else if (ctrl.required) {
+                                    missingRequired = true
+                                    missingLabel = ctrl.label.ifBlank { ctrl.name.ifBlank { "Required gatekeeper field" } }
                                 }
                             }
+
+                            if (missingRequired) {
+                                return NavigationOutcome(
+                                    formReached = false,
+                                    currentUrl = currentUrl,
+                                    blockedReason = CourierBlockedReason.MISSING_REQUIRED_FIELDS,
+                                    detail = "Gatekeeper step requires missing user input: $missingLabel",
+                                )
+                            }
+
                             webHost.clickElementSafely(task.taskId, actionId)
                             delay(1500L)
                             currentUrl = webHost.getCurrentUrl(task.taskId).ifBlank { currentUrl }
