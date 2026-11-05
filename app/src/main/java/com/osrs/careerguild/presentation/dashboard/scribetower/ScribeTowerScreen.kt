@@ -75,6 +75,7 @@ import com.osrs.careerguild.core.resume.SkillCategorizer
 import com.osrs.careerguild.di.LocalAppContainer
 import com.osrs.careerguild.domain.model.GuildBuilding
 import com.osrs.careerguild.domain.model.JobListing
+import com.osrs.careerguild.domain.resume.ResumeGapReport
 import com.osrs.careerguild.domain.resume.TailoredResume
 import com.osrs.careerguild.data.local.entity.toDomain
 import com.osrs.careerguild.presentation.common.InfoTooltipTrigger
@@ -287,6 +288,13 @@ fun ScribeTowerScreen(
                     availableJobs = availableJobs,
                     onSelectJob = { selectedJob = it },
                 )
+            }
+
+            // 2b. Target Role Gap Analysis (Coverage & Role Family)
+            tailoredResume?.gapReport?.let { report ->
+                item {
+                    TargetRoleGapAnalysisCard(gapReport = report)
+                }
             }
 
             // 3. Skill Infusion Chips (Auto-selected from Master Resume + Skill Altar + Target JD)
@@ -1160,6 +1168,80 @@ private fun ModularToggleRow(
                     checkedTrackColor = Color(0xFF1B3B22),
                 ),
             )
+        }
+    }
+}
+
+@Composable
+private fun TargetRoleGapAnalysisCard(gapReport: ResumeGapReport) {
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = OsrsStone),
+        border = BorderStroke(1.2.dp, OsrsGold),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "📊 Target Role Gap Analysis",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = OsrsGold,
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFF1E3A4A),
+                        border = BorderStroke(0.8.dp, Color(0xFF00E5FF)),
+                    ) {
+                        Text(
+                            text = gapReport.roleFamily,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                            color = Color(0xFF00E5FF),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = if (gapReport.coverageScore >= 70) Color(0xFF1B3B22) else Color(0xFF4A2A1A),
+                    border = BorderStroke(1.dp, if (gapReport.coverageScore >= 70) Color(0xFF4CAF50) else Color(0xFFFF9800)),
+                ) {
+                    Text(
+                        text = "Coverage: ${gapReport.coverageScore}%",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Bold),
+                        color = if (gapReport.coverageScore >= 70) Color(0xFF81C784) else Color(0xFFFFB74D),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+            }
+
+            if (gapReport.matchedKeywords.isNotEmpty()) {
+                Text(
+                    text = "✓ Supported Strengths: " + gapReport.matchedKeywords.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 9.5.sp),
+                    color = Color(0xFF81C784),
+                )
+            }
+
+            if (gapReport.unsupportedKeywords.isNotEmpty()) {
+                Text(
+                    text = "⚠ Unsupported Requirements: " + gapReport.unsupportedKeywords.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 9.5.sp),
+                    color = Color(0xFFFFB74D),
+                )
+                Text(
+                    text = "(Information only — never inserted or fabricated into resume)",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp),
+                    color = OsrsTextDim,
+                )
+            }
         }
     }
 }

@@ -26,6 +26,8 @@ data class TailoredResume(
     val certifications: List<ResumeCertification> = emptyList(),
     val isTailored: Boolean = true,
     val fallbackReason: String? = null,
+    val targetHeadline: String? = null,
+    val gapReport: ResumeGapReport? = null,
 ) {
     fun getCategorizedSkills(jdKeywords: List<String> = emptyList()): Map<String, List<String>> {
         if (categorizedSkills.isNotEmpty()) {
@@ -97,3 +99,15 @@ data class TailoredResume(
         }
     }
 }
+
+/**
+ * Informational gap analysis comparing Target Job Description requirements against Base Resume.
+ * Displayed in the UI as information only; never inserted into the resume.
+ */
+@Serializable
+data class ResumeGapReport(
+    val coverageScore: Int,
+    val matchedKeywords: List<String> = emptyList(),
+    val unsupportedKeywords: List<String> = emptyList(),
+    val roleFamily: String = "",
+)
