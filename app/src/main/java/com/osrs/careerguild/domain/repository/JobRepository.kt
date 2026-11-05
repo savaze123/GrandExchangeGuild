@@ -2,6 +2,7 @@ package com.osrs.careerguild.domain.repository
 
 import com.osrs.careerguild.domain.model.JobListing
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 /**
  * Contract for the job listing data source (LOCAL_VAULT).
@@ -43,4 +44,8 @@ interface JobRepository {
 
     /** Purge legacy TechRadar listings with generic portals. */
     suspend fun purgeLegacyListings(): Result<Unit>
+
+    /** Look up a single job by id, or null if not found. */
+    suspend fun getJobById(jobId: String): JobListing? =
+        runCatching { observeAll().first().firstOrNull { it.id == jobId } }.getOrNull()
 }

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Software Engineer - Synthetic ATS Application</title>
+</head>
+<body>
+    <main id="application-container">
+        <h1>Apply for Software Engineer</h1>
+        <form id="application_form" action="#submitted" method="post" onsubmit="event.preventDefault(); document.getElementById('confirmation').style.display='block'; document.title='Application submitted - Thank you for applying';">
+            <div class="field">
+                <label for="resume_file">Resume/CV *</label>
+                <input id="resume_file" name="resume" type="file" accept=".pdf,.docx,.doc,.txt" required />
+            </div>
+
+            <div class="field">
+                <label for="first_name">First Name *</label>
+                <input id="first_name" name="first_name" type="text" value="WrongAutofillFirst" required />
+            </div>
+
+            <div class="field">
+                <label for="last_name">Last Name *</label>
+                <input id="last_name" name="last_name" type="text" value="WrongAutofillLast" required />
+            </div>
+
+            <div class="field">
+                <label for="email">Email *</label>
+                <input id="email" name="email" type="email" value="wrong@autofill.invalid" required />
+            </div>
+
+            <div class="field">
+                <label for="phone">Phone *</label>
+                <input id="phone" name="phone" type="tel" value="000-000-0000" required />
+            </div>
+
+            <div class="field">
+                <label for="location">Current Location (City, State)</label>
+                <input id="location" name="location" type="text" value="" />
+            </div>
+
+            <div class="field">
+                <label for="github_url">GitHub URL</label>
+                <input id="github_url" name="github_url" type="url" value="" />
+            </div>
+
+            <div class="field">
+                <label for="custom_project_q">Tell us about a project you have built and the technical challenges you solved.</label>
+                <textarea id="custom_project_q" name="custom_project_q" maxlength="600"></textarea>
+            </div>
+
+            <fieldset class="eeo-section">
+                <legend>Voluntary Self-Identification (EEO)</legend>
+                <div class="field">
+                    <label for="eeo_gender">Gender</label>
+                    <select id="eeo_gender" name="eeo_gender">
+                        <option value="">Select...</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Decline to self-identify">Decline to self-identify</option>
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label for="eeo_race">Race / Ethnicity</label>
+                    <select id="eeo_race" name="eeo_race">
+                        <option value="">Select...</option>
+                        <option value="Hispanic or Latino">Hispanic or Latino</option>
+                        <option value="White">White</option>
+                        <option value="Black">Black</option>
+                        <option value="Native Hawaiian or Other Pacific Islander">Native Hawaiian or Other Pacific Islander</option>
+                        <option value="Asian">Asian</option>
+                        <option value="American Indian or Alaska Native">American Indian or Alaska Native</option>
+                        <option value="Two or More Races">Two or More Races</option>
+                        <option value="Prefer not to say">Prefer not to say</option>
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label for="eeo_veteran">Veteran Status</label>
+                    <select id="eeo_veteran" name="eeo_veteran">
+                        <option value="">Select...</option>
+                        <option value="I identify as a veteran">I identify as a veteran</option>
+                        <option value="I am not a protected veteran">I am not a protected veteran</option>
+                        <option value="I decline to self-identify for protected veteran status">I decline to self-identify for protected veteran status</option>
+                    </select>
+                </div>
+            </fieldset>
+
+            <button id="submit_app" type="submit">Submit Application</button>
+        </form>
+
+        <div id="confirmation" style="display:none;">
+            <h2>Thank you for applying! Your application has been received.</h2>
+        </div>
+    </main>
+    <script>
+        document.getElementById('resume_file').addEventListener('change', function() {
+            // Simulate ATS resume parser populating stale values shortly after file selection
+            setTimeout(function() {
+                var fn = document.getElementById('first_name');
+                if (fn && !fn.getAttribute('data-cg-overwritten')) {
+                    fn.value = 'ParsedWrongName';
+                }
+            }, 150);
+        });
+    </script>
+</body>
+</html>
