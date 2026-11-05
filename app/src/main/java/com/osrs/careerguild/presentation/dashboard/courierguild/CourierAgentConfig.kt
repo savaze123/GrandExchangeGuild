@@ -16,19 +16,52 @@ package com.osrs.careerguild.presentation.dashboard.courierguild
  */
 object CourierAgentConfig {
 
-    const val EXECUTION_BREAKDOWN_SYSTEM_PROMPT: String = """
-You are the GrandExchangeGuild Courier Auto-Apply Agent (Node: AUTO_APPLY_AGENT).
-Your role is to inspect the target ATS portal DOM using the deterministic Heuristic Navigation Brain, render real-time visual feedback (pulsing neon amber bounding boxes, mouse-click ripples, and simulated character-by-character typing), map candidate fields from the verified Dynamic Profile and Single-Source-of-Truth BaseResume at a slower-than-human cadence (2.5s–6.0s), handle account creation gates via LOCAL_VAULT credentials, and emit a deterministic Execution Breakdown telemetry report.
+    /** Maximum concurrent active workers (instruction.md §5 & Reconciliation §2). */
+    var maxConcurrentWorkers: Int = 5
 
-HARD INVARIANTS:
-1. Never auto-apply to LinkedIn URLs or LinkedIn Easy Apply listings ("Manual Apply Only").
-2. Never fabricate personal data, employers, titles, or metrics. Use only the dynamic profile (Name, Email, GitHub, Location) and verified BaseResume.
-3. For EVERY dispatch cycle, you MUST emit an "Execution Breakdown" adhering strictly to the following 5-field output schema:
-   - Status: [READY | IN_PROGRESS | COMPLETED | ACCOUNT_GATE_RESOLVED | BLOCKED_MANUAL_ONLY | FAILED]
-   - ATS Platform Detected: [Greenhouse | Lever | Ashby | Workday | TikTok Careers | Custom ATS]
-   - Mapping Log: [List of DOM selectors mapped -> candidate field status]
-   - Unmapped/Ambiguous Fields: [Any custom EEO, sponsorship, or ambiguous portal fields requiring user review, or "None"]
-   - Failure Analysis & Upgrade Path: [Root-cause diagnostic if any selector or HTTP/Cloudflare gate failed + concrete selector/session upgrade path]
+    /** Maximum applications submitted per rolling 24-hour day (Reconciliation §2). */
+    var dailyCap: Int = 15
+
+    /** Randomized inter-application delay bounds in milliseconds (60s–120s). */
+    var interApplicationDelayMinMs: Long = 60_000L
+    var interApplicationDelayMaxMs: Long = 120_000L
+
+    /** Randomized human pacing between individual field actions (400ms–1500ms, Phase 2.6). */
+    var fieldActionDelayMinMs: Long = 400L
+    var fieldActionDelayMaxMs: Long = 1_500L
+
+    /** Global default submit policy (Phase 4.1). */
+    var defaultSubmitPolicy: SubmitPolicy = SubmitPolicy.REVIEW_BEFORE_SUBMIT
+
+    const val EXECUTION_BREAKDOWN_SYSTEM_PROMPT: String = """
+# Master System Prompt: GrandExchangeGuild Courier Agent v5 (Argon / Antigravity Execution)
+
+1. Core Architecture & 4-Stage Pipeline:
+   - Stage A (Discovery & Scraping): Direct ATS listings (Greenhouse, Lever, Ashby, Workday).
+   - Stage B (Scoring & Gap Analysis): Compare JD against BaseResume and GitHub metrics.
+   - Stage C (Tailoring Assets): Tailor bullets and grounded humble/eager answers; 1-page PDF via ResumeForge.
+   - Stage D (Form Filling & Submission - HITL): Sequential DOM pipeline, pausing at final review/submit for 1-click human approval.
+
+2. Strict Execution Sequence & DOM Scoping:
+   - Step 1 (Pre-flight & Login): Guest checkouts or LOCAL_VAULT credentials.
+   - Step 2 (Resume Import FIRST): Immediately attach tailored Forge resume via <input type="file"> before text inputs so native ATS parsers pre-fill fields.
+   - Step 3 (Delta Contact & Profile Fill): Populate only fields left blank by the resume parser dynamically from UserProfileManager.getInstance(context).profile.
+   - Step 4 (Screening & Strict EEO): Populate custom questions and demographic dropdowns using strict literal matching.
+
+3. Strict EEO & Demographic Data Rules (Zero Hallucination):
+   - Phone: UserProfileManager.getInstance(context).profile.phone
+   - Gender: Decline to self-identify (or user profile setting)
+   - Race / Ethnicity: Decline to self-identify (or user profile setting)
+   - Veteran Status: I decline to self-identify for protected veteran status (or user profile setting)
+
+4. Smart DOM Filtering & Accessibility Ignore List:
+   - Restrict DOM scanning strictly to interactive form controls (input, select, textarea, [role="combobox"], [role="listbox"]).
+   - Ignore static footer/disclaimer text containing "need assistance", "reasonable accommodation", "accessibility", or "reach out to tinyurl".
+   - Only trigger CourierCaptchaQuest hard stops for verified interactive CAPTCHAs (recaptcha, hcaptcha, turnstile) or mandatory video/assessment portals (HireVue, HackerRank).
+
+5. Concurrency & State Persistence Invariants:
+   - Strict 5 concurrent workers cap (MAX_CONCURRENT_APPLICATIONS = 5).
+   - All queue items, active statuses, deletion tombstones, and room view selections persist in CourierAutoApplyDispatcher across tab navigation.
 """
 
     data class ExecutionBreakdown(
@@ -194,7 +227,7 @@ HARD INVARIANTS:
 
                 if (labelText) {
                     badge.textContent = labelText;
-                    badge.style.top = Math.max(4, rect.top - 28) + 'px';
+                    badge.style.top = Math.min(window.innerHeight - 24, rect.bottom + 8) + 'px';
                     badge.style.left = Math.max(6, rect.left) + 'px';
                     badge.style.opacity = '1';
                 }
@@ -262,6 +295,12 @@ HARD INVARIANTS:
                 const el = window.__cgFindFieldHeuristically(selectorList, keywordHints);
                 if (!el) return "not_found";
 
+                // Check if native ATS resume parser already pre-filled this field
+                if (el.value && el.value.trim().length > 0) {
+                    window.__cgUpdateAmberBox(el, '✓ PRE-FILLED [' + displayName + ']');
+                    return "prefilled";
+                }
+
                 try {
                     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 } catch (e) {}
@@ -289,7 +328,8 @@ HARD INVARIANTS:
                         clearInterval(window.__cgTypingTimer);
                         window.__cgTypingTimer = null;
                         el.dispatchEvent(new Event('change', { bubbles: true }));
-                        window.__cgUpdateAmberBox(el, '✓ Mapped ' + displayName);
+                        window.__cgUpdateAmberBox(el, '✓ ' + displayName);
+                        setTimeout(function() { badge.style.opacity = '0'; }, 1400);
                     }
                 }, stepMs);
 
@@ -414,6 +454,367 @@ HARD INVARIANTS:
                     return window.__cgHeuristicTypeField("$safeSelector", [$hintsJson], "$safeVal", "$safeDisplay");
                 }
                 return "overlay_not_ready";
+            })();
+        """.trimIndent()
+    }
+
+    /**
+     * Concise, human-sounding 1–2 sentence answer for open-ended questions.
+     * Grounded only in the dynamic profile / BaseResume data passed in; no AI-isms, no fluff.
+     */
+    fun buildHumanConciseResponse(
+        company: String,
+        title: String,
+        employer: String = "",
+        skills: String = "",
+    ): String {
+        val topSkills = skills.split(",").map { it.trim() }.filter { it.isNotBlank() }.take(3)
+        val skillPhrase = when (topSkills.size) {
+            0 -> ""
+            1 -> topSkills[0]
+            2 -> "${topSkills[0]} and ${topSkills[1]}"
+            else -> "${topSkills[0]}, ${topSkills[1]} and ${topSkills[2]}"
+        }
+        val first = when {
+            employer.isNotBlank() && skillPhrase.isNotBlank() ->
+                "I build $skillPhrase systems at $employer and enjoy shipping practical, reliable software."
+            skillPhrase.isNotBlank() -> "I work mostly with $skillPhrase and enjoy shipping practical, reliable software."
+            else -> "I enjoy shipping practical, reliable software."
+        }
+        val target = if (title.isNotBlank()) "the $title role at $company" else "the role at $company"
+        return "$first $target looks like a strong fit for that work."
+    }
+
+    /** Parsed location pieces used to fill Country / State / City / ZIP controls. */
+    data class LocationProfile(
+        val city: String,
+        val stateFull: String,
+        val stateAbbr: String,
+        val zip: String,
+        val country: String = "United States",
+    )
+
+    /** instruction.md §8 EEO & Profile Configuration */
+    data class EeoProfile(
+        val phone: String = "",
+        val gender: String = CourierResponseSynthesizer.DEFAULT_GENDER,
+        val race: String = CourierResponseSynthesizer.DEFAULT_RACE,
+        val veteranStatus: String = CourierResponseSynthesizer.DEFAULT_VETERAN_STATUS,
+    ) {
+        val effectiveGender: String
+            get() = CourierResponseSynthesizer.normalizeGender(gender)
+        val effectiveRace: String
+            get() = CourierResponseSynthesizer.normalizeRace(race)
+        val effectiveVeteranStatus: String
+            get() = CourierResponseSynthesizer.normalizeVeteranStatus(veteranStatus)
+    }
+
+    private val stateNames = mapOf(
+        "NY" to "New York", "NJ" to "New Jersey", "CA" to "California", "TX" to "Texas",
+        "FL" to "Florida", "MA" to "Massachusetts", "PA" to "Pennsylvania", "WA" to "Washington",
+        "IL" to "Illinois", "CT" to "Connecticut", "VA" to "Virginia", "GA" to "Georgia",
+        "NC" to "North Carolina", "CO" to "Colorado", "OH" to "Ohio", "MD" to "Maryland",
+    )
+
+    /** Parses "Valley Stream, NY 11581" / "Valley Stream, 11581" (ZIP prefix hints state if missing). */
+    fun parseLocationProfile(location: String): LocationProfile {
+        val zip = Regex("\\b\\d{5}\\b").find(location)?.value.orEmpty()
+        val abbr = Regex("\\b([A-Z]{2})\\b").findAll(location).map { it.value }.firstOrNull { it in stateNames }
+            ?: if (zip.startsWith("1")) "NY" else ""
+        val city = location.substringBefore(",").replace(Regex("\\d{5}"), "").trim()
+        return LocationProfile(city, stateNames[abbr].orEmpty(), abbr, zip)
+    }
+
+    /**
+     * Best-effort answering pass: location controls, Yes/No toggle groups, acknowledgement
+     * checkboxes, EEO dropdowns/radios (instruction.md §8), and selects. Runs as a throttled async chain inside the page.
+     * Returns the estimated step count so the caller can wait.
+     */
+    fun buildBestEffortAnswerJs(
+        loc: LocationProfile,
+        yearsExperience: String = "3",
+        eeo: EeoProfile = EeoProfile(),
+    ): String {
+        val c = "{city:\"${escapeJs(loc.city)}\",state:\"${escapeJs(loc.stateFull)}\",abbr:\"${escapeJs(loc.stateAbbr)}\"," +
+            "zip:\"${escapeJs(loc.zip)}\",country:\"${escapeJs(loc.country)}\",years:\"${escapeJs(yearsExperience)}\"," +
+            "phone:\"${escapeJs(eeo.phone)}\",gender:\"${escapeJs(eeo.effectiveGender)}\",race:\"${escapeJs(eeo.effectiveRace)}\",veteran:\"${escapeJs(eeo.effectiveVeteranStatus)}\"}"
+        return """
+            (function() {
+                const ctx = $c;
+                const steps = [];
+                const txt = e => ((e && (e.innerText || e.textContent)) || '').trim();
+                const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+                const vis = e => e && e.offsetParent !== null && !e.closest('footer, [role="contentinfo"]');
+                const isDisclaimer = s => /need assistance|reasonable accommodation|accessibility|reach out to tinyurl/i.test(s || '');
+                const aliases = { 'us': 'united states', 'usa': 'united states', 'ny': 'new york' };
+                function fuzzyMatch(opt, want) {
+                    let o = norm(opt), w = norm(want);
+                    if (!w) return false;
+                    o = aliases[o] || o; w = aliases[w] || w;
+                    return o === w || o.indexOf(w) !== -1 || (o.length > 2 && w.indexOf(o) !== -1);
+                }
+                function questionFor(el) {
+                    let n = el;
+                    for (let i = 0; i < 5 && n; i++) {
+                        let p = n.previousElementSibling;
+                        while (p) {
+                            const t = txt(p);
+                            if (t.length > 8 && !/^(yes|no)$/i.test(t) && !isDisclaimer(t)) return t;
+                            p = p.previousElementSibling;
+                        }
+                        n = n.parentElement;
+                    }
+                    return '';
+                }
+                function yesNoFor(q) {
+                    q = q.toLowerCase();
+                    if (/sponsor|visa/.test(q)) return 'No';
+                    if (/previously (been )?employed|former employee|government official|non-?compete|conflict of interest|restrictive covenant|criminal|felony/.test(q)) return 'No';
+                    if (/authori[sz]ed|legally|eligible|right to work|willing|able to|relocat|hybrid|on-?site|in-?office|office|commute|at least 18|over 18|background check|agree|consent|acknowledge/.test(q)) return 'Yes';
+                    return null;
+                }
+                function locationValueFor(q) {
+                    q = q.toLowerCase();
+                    if (/country/.test(q)) return ctx.country;
+                    if (/state|province|region/.test(q)) return ctx.state;
+                    if (/zip|postal/.test(q)) return ctx.zip;
+                    if (/city|town|currently located|where are you (located|based)/.test(q)) return ctx.city + ', ' + ctx.abbr;
+                    return null;
+                }
+                function eeoValueFor(q) {
+                    q = q.toLowerCase();
+                    if (/\bgender\b|\bsex\b/.test(q) && !/orientation/.test(q)) {
+                        return { kind: 'gender', target: ctx.gender };
+                    }
+                    if (/\brace\b|ethnic|demographic/.test(q)) {
+                        return { kind: 'race', target: ctx.race };
+                    }
+                    if (/veteran|military/.test(q)) {
+                        return { kind: 'veteran', target: ctx.veteran };
+                    }
+                    return null;
+                }
+                function matchEeoOption(optText, kind, target) {
+                    const o = norm(optText);
+                    const t = norm(target);
+                    if (!o || !t) return false;
+                    const isDeclineTarget = /decline|prefer not|choose not|do not wish|not specify|not disclose/.test(t);
+                    const isDeclineOption = /decline|prefer not|choose not|do not wish|not specify|not disclose|rather not say/.test(o);
+                    if (isDeclineTarget || isDeclineOption) {
+                        return isDeclineTarget && isDeclineOption;
+                    }
+                    if (kind === 'gender') {
+                        if (t === 'male') return (o === 'male' || o === 'man') && !/female|woman/.test(o);
+                        if (t === 'female') return o === 'female' || o === 'woman';
+                        return o === t;
+                    }
+                    if (kind === 'race') {
+                        if (t.indexOf('hispanic') !== -1 || t.indexOf('latino') !== -1) {
+                            return /hispanic|latino|latina|latinx/.test(o);
+                        }
+                        if (t === 'white') {
+                            return (o === 'white' || o === 'caucasian' || o.indexOf('white') !== -1) && !/non white|not white|black|hispanic|asian|two or more|multi/.test(o);
+                        }
+                        if (t === 'black') {
+                            return /black|african american/.test(o);
+                        }
+                        if (t.indexOf('pacific') !== -1 || t.indexOf('hawaiian') !== -1) {
+                            return /native hawaiian|pacific islander/.test(o);
+                        }
+                        if (t === 'asian') {
+                            return (o === 'asian' || o.indexOf('asian') !== -1) && !/caucasian/.test(o);
+                        }
+                        if (t.indexOf('american indian') !== -1 || t.indexOf('alaska native') !== -1) {
+                            return /american indian|alaska native|indigenous|native american/.test(o);
+                        }
+                        if (t.indexOf('two or more') !== -1) {
+                            return /two or more|multi/.test(o);
+                        }
+                        return o === t;
+                    }
+                    if (kind === 'veteran') {
+                        if (t.indexOf('not a protected veteran') !== -1 || t === 'i am not a protected veteran') {
+                            return (/not a protected veteran|not a veteran|am not|no\b/.test(o)) && !isDeclineOption;
+                        }
+                        if (t.indexOf('identify as a veteran') !== -1 || t === 'i identify as a veteran') {
+                            return (/identify as.*veteran|protected veteran|i am a veteran|yes\b/.test(o)) && !/not/.test(o) && !isDeclineOption;
+                        }
+                        return o === t;
+                    }
+                    return false;
+                }
+                function click(el) {
+                    try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+                    if (window.__cgTriggerClickRipple) window.__cgTriggerClickRipple(el);
+                    if (window.__cgUpdateAmberBox) window.__cgUpdateAmberBox(el, null);
+                    el.click();
+                }
+                function setNative(el, v) {
+                    const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+                    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v);
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                // 1. Yes/No toggle button groups
+                const groups = new Map();
+                document.querySelectorAll('button, [role="button"]').forEach(b => {
+                    if (!vis(b) || !/^(yes|no)${'$'}/i.test(txt(b))) return;
+                    const key = b.parentElement;
+                    if (!groups.has(key)) groups.set(key, []);
+                    groups.get(key).push(b);
+                });
+                groups.forEach((btns, parent) => {
+                    const pressed = btns.some(b => b.getAttribute('aria-pressed') === 'true' || /active|selected|checked/.test(b.className));
+                    if (pressed) return;
+                    const q = questionFor(parent);
+                    if (!q || isDisclaimer(q)) return;
+                    const ans = yesNoFor(q);
+                    if (!ans) { steps.push({ skip: q.substring(0, 60) }); return; }
+                    const btn = btns.find(b => txt(b).toLowerCase() === ans.toLowerCase());
+                    if (btn) steps.push({ run: () => click(btn), label: ans + ' -> ' + q.substring(0, 40) });
+                });
+                // 2. Native selects (EEO + Location + Yes/No)
+                document.querySelectorAll('select').forEach(sel => {
+                    if (!vis(sel)) return;
+                    const q = questionFor(sel) + ' ' + (sel.name || '') + ' ' + (sel.id || '');
+                    if (isDisclaimer(q)) return;
+                    const eeo = eeoValueFor(q);
+                    if (eeo) {
+                        const opt = Array.from(sel.options).find(o => matchEeoOption(txt(o), eeo.kind, eeo.target) || matchEeoOption(o.value, eeo.kind, eeo.target));
+                        if (opt) {
+                            steps.push({
+                                run: () => {
+                                    sel.value = opt.value;
+                                    sel.dispatchEvent(new Event('input', { bubbles: true }));
+                                    sel.dispatchEvent(new Event('change', { bubbles: true }));
+                                },
+                                label: 'eeo select [' + eeo.kind + '] -> ' + opt.text
+                            });
+                            return;
+                        }
+                    }
+                    if (sel.selectedIndex > 0) return;
+                    let want = locationValueFor(q);
+                    if (!want) { const yn = yesNoFor(q); if (yn) want = yn; }
+                    if (!want) return;
+                    const opt = Array.from(sel.options).find(o => fuzzyMatch(o.text, want) || fuzzyMatch(o.value, want) || (want === ctx.state && fuzzyMatch(o.text, ctx.abbr)));
+                    if (opt) steps.push({ run: () => { sel.value = opt.value; sel.dispatchEvent(new Event('change', { bubbles: true })); }, label: 'select ' + opt.text });
+                });
+                // 2b. Radio button groups (EEO & Yes/No)
+                const radioGroups = new Map();
+                document.querySelectorAll('input[type="radio"]').forEach(r => {
+                    if (!vis(r)) return;
+                    const container = r.closest('fieldset, .form-group, .field, [role="radiogroup"], div') || r.parentElement;
+                    if (!radioGroups.has(container)) radioGroups.set(container, []);
+                    radioGroups.get(container).push(r);
+                });
+                radioGroups.forEach((radios, container) => {
+                    const q = questionFor(container) + ' ' + (container.getAttribute('aria-label') || '');
+                    if (isDisclaimer(q)) return;
+                    const eeo = eeoValueFor(q);
+                    if (eeo) {
+                        const match = radios.find(r => {
+                            let label = txt(r.parentElement) || r.value || '';
+                            if (r.id) {
+                                const lbl = document.querySelector('label[for="' + r.id + '"]');
+                                if (lbl) label += ' ' + txt(lbl);
+                            }
+                            return matchEeoOption(label, eeo.kind, eeo.target);
+                        });
+                        if (match) {
+                            steps.push({ run: () => click(match), label: 'eeo radio [' + eeo.kind + '] -> ' + eeo.target });
+                            return;
+                        }
+                    }
+                    const isChecked = radios.some(r => r.checked);
+                    if (isChecked) return;
+                    const yn = yesNoFor(q);
+                    if (yn) {
+                        const match = radios.find(r => {
+                            const label = (txt(r.parentElement) || r.value || '').toLowerCase();
+                            return yn.toLowerCase() === 'yes' ? /^(yes|true)$/.test(label) : /^(no|false)$/.test(label);
+                        });
+                        if (match) {
+                            steps.push({ run: () => click(match), label: yn + ' radio -> ' + q.substring(0, 40) });
+                        }
+                    }
+                });
+                // 2c. Custom dropdowns & ARIA select menus (strictly interactive [role="combobox"], [role="listbox"])
+                document.querySelectorAll('[role="combobox"], [role="listbox"]').forEach(dd => {
+                    if (!vis(dd)) return;
+                    const q = questionFor(dd) + ' ' + (dd.getAttribute('aria-label') || '') + ' ' + (dd.id || '');
+                    if (isDisclaimer(q)) return;
+                    const eeo = eeoValueFor(q);
+                    if (eeo) {
+                        steps.push({
+                            run: () => {
+                                click(dd);
+                                setTimeout(() => {
+                                    const options = Array.from(document.querySelectorAll('[role="option"], .select__option, li[data-value], div[class*="option"]'));
+                                    const match = options.find(o => matchEeoOption(txt(o), eeo.kind, eeo.target));
+                                    if (match) click(match);
+                                }, 300);
+                            },
+                            label: 'custom eeo dropdown [' + eeo.kind + '] -> ' + eeo.target
+                        });
+                    }
+                });
+                // 3. Phone inputs (instruction.md §8: strictly dynamically injected from profile.phone)
+                if (ctx.phone) {
+                    document.querySelectorAll('input[type="tel"], input[name*="phone"], input[id*="phone"], input[autocomplete*="tel"]').forEach(inp => {
+                        if (!vis(inp)) return;
+                        if (!inp.value || inp.value.trim().length === 0) {
+                            steps.push({
+                                run: () => {
+                                    inp.focus();
+                                    setNative(inp, ctx.phone);
+                                },
+                                label: 'phone ' + ctx.phone
+                            });
+                        }
+                    });
+                }
+                // 3b. Text input EEO fields (if text-based instead of dropdown)
+                document.querySelectorAll('input[type="text"], input:not([type])').forEach(inp => {
+                    if (!vis(inp)) return;
+                    const q = questionFor(inp.parentElement || inp) + ' ' + (inp.getAttribute('aria-label') || '') + ' ' + (inp.placeholder || '') + ' ' + (inp.name || '');
+                    const eeo = eeoValueFor(q);
+                    if (eeo && (!inp.value || inp.value.trim().length === 0)) {
+                        steps.push({
+                            run: () => {
+                                inp.focus();
+                                setNative(inp, eeo.target);
+                            },
+                            label: 'eeo text [' + eeo.kind + '] -> ' + eeo.target
+                        });
+                    }
+                });
+                // 3c. Location text inputs / comboboxes
+                document.querySelectorAll('input[type="text"], input:not([type]), input[role="combobox"], input[aria-autocomplete]').forEach(inp => {
+                    if (!vis(inp) || inp.value) return;
+                    const q = questionFor(inp.parentElement || inp) + ' ' + (inp.getAttribute('aria-label') || '') + ' ' + (inp.placeholder || '') + ' ' + (inp.name || '');
+                    const want = locationValueFor(q);
+                    if (want) steps.push({ run: () => { inp.focus(); setNative(inp, want); }, label: 'location ' + want });
+                });
+                // 4. Acknowledgement / agreement checkboxes
+                document.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                    if (cb.checked) return;
+                    const ctxText = txt(cb.closest('label, div, fieldset')).toLowerCase();
+                    if (/acknowledg|agree|certify|consent|privacy|arbitration|terms/.test(ctxText)) {
+                        steps.push({ run: () => click(cb), label: 'acknowledge' });
+                    }
+                });
+                // Throttled execution (2.5s - 6s between fields)
+                let i = 0;
+                function next() {
+                    if (i >= steps.length) { window.__cgBestEffortDone = true; return; }
+                    const s = steps[i++];
+                    try { if (s.run) s.run(); } catch (e) {}
+                    setTimeout(next, 2500 + Math.random() * 3500);
+                }
+                window.__cgBestEffortDone = false;
+                next();
+                return "STEPS:" + steps.filter(s => s.run).length + ";SKIPPED:" + steps.filter(s => s.skip).map(s => s.skip).join('|');
             })();
         """.trimIndent()
     }

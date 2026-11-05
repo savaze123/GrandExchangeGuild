@@ -1,0 +1,674 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 6,
+    "identityHash": "0d04e05175e48cc17a855bdb1a56e4c1",
+    "entities": [
+      {
+        "tableName": "skills",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`name` TEXT NOT NULL, `category` TEXT NOT NULL, `is_active` INTEGER NOT NULL, `level` INTEGER NOT NULL, PRIMARY KEY(`name`))",
+        "fields": [
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "category",
+            "columnName": "category",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "is_active",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "level",
+            "columnName": "level",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "name"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "jobs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `company` TEXT NOT NULL, `ats_url` TEXT NOT NULL, `source` TEXT NOT NULL, `score` INTEGER NOT NULL, `matched_skills` TEXT NOT NULL, `is_blocked` INTEGER NOT NULL, `applied_at` TEXT, `location` TEXT NOT NULL DEFAULT 'New York, NY', `work_mode` TEXT NOT NULL DEFAULT 'Hybrid', `apply_url` TEXT NOT NULL DEFAULT '', `description` TEXT NOT NULL DEFAULT '', `lat` REAL, `lng` REAL, `link_status` TEXT NOT NULL DEFAULT 'VERIFIED', `last_verified_at` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "company",
+            "columnName": "company",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "atsUrl",
+            "columnName": "ats_url",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "score",
+            "columnName": "score",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "matchedSkills",
+            "columnName": "matched_skills",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isBlocked",
+            "columnName": "is_blocked",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "appliedAt",
+            "columnName": "applied_at",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "location",
+            "columnName": "location",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'New York, NY'"
+          },
+          {
+            "fieldPath": "workMode",
+            "columnName": "work_mode",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'Hybrid'"
+          },
+          {
+            "fieldPath": "applyUrl",
+            "columnName": "apply_url",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "lat",
+            "columnName": "lat",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "lng",
+            "columnName": "lng",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "linkStatus",
+            "columnName": "link_status",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'VERIFIED'"
+          },
+          {
+            "fieldPath": "lastVerifiedAt",
+            "columnName": "last_verified_at",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "blocked_companies",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`company_name` TEXT NOT NULL, `blocked_at` TEXT NOT NULL, PRIMARY KEY(`company_name`))",
+        "fields": [
+          {
+            "fieldPath": "companyName",
+            "columnName": "company_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "blockedAt",
+            "columnName": "blocked_at",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "company_name"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "base_resumes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `raw_text` TEXT NOT NULL, `confirmed_json` TEXT NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rawText",
+            "columnName": "raw_text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confirmedJson",
+            "columnName": "confirmed_json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "github_repos",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `name` TEXT NOT NULL, `description` TEXT, `html_url` TEXT NOT NULL, `topics` TEXT NOT NULL, `languages` TEXT NOT NULL, `pushed_at` TEXT, `readme_excerpt` TEXT, `etag` TEXT, `cached_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "htmlUrl",
+            "columnName": "html_url",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "topics",
+            "columnName": "topics",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "languages",
+            "columnName": "languages",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pushedAt",
+            "columnName": "pushed_at",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "readmeExcerpt",
+            "columnName": "readme_excerpt",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "etag",
+            "columnName": "etag",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cached_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "courier_accounts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `company_name` TEXT NOT NULL, `job_title` TEXT NOT NULL, `portal_url` TEXT NOT NULL, `email_used` TEXT NOT NULL, `password_encrypted` TEXT NOT NULL, `created_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "companyName",
+            "columnName": "company_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "jobTitle",
+            "columnName": "job_title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "portalUrl",
+            "columnName": "portal_url",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emailUsed",
+            "columnName": "email_used",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "passwordEncrypted",
+            "columnName": "password_encrypted",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "applicant_answers",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`question_pattern` TEXT NOT NULL, `answer` TEXT NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`question_pattern`))",
+        "fields": [
+          {
+            "fieldPath": "questionPattern",
+            "columnName": "question_pattern",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "answer",
+            "columnName": "answer",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "question_pattern"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "courier_task",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`task_id` TEXT NOT NULL, `job_id` TEXT NOT NULL DEFAULT '', `job_url` TEXT NOT NULL DEFAULT '', `ats` TEXT NOT NULL DEFAULT '', `title` TEXT NOT NULL DEFAULT '', `company` TEXT NOT NULL DEFAULT '', `status` TEXT NOT NULL DEFAULT 'QUEUED', `step` TEXT NOT NULL DEFAULT 'INIT', `current_url` TEXT NOT NULL DEFAULT '', `filled_fields_json` TEXT NOT NULL DEFAULT '{}', `blocked_reason` TEXT, `blocked_fields_json` TEXT NOT NULL DEFAULT '[]', `resume_pdf_path` TEXT, `submit_policy` TEXT NOT NULL DEFAULT 'REVIEW_BEFORE_SUBMIT', `review_required` INTEGER NOT NULL DEFAULT 0, `attempts` INTEGER NOT NULL DEFAULT 0, `last_error` TEXT, `snoozed_until` INTEGER, `created_at` INTEGER NOT NULL DEFAULT 0, `updated_at` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`task_id`))",
+        "fields": [
+          {
+            "fieldPath": "taskId",
+            "columnName": "task_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "jobId",
+            "columnName": "job_id",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "jobUrl",
+            "columnName": "job_url",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "ats",
+            "columnName": "ats",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "company",
+            "columnName": "company",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'QUEUED'"
+          },
+          {
+            "fieldPath": "step",
+            "columnName": "step",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'INIT'"
+          },
+          {
+            "fieldPath": "currentUrl",
+            "columnName": "current_url",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "filledFieldsJson",
+            "columnName": "filled_fields_json",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'{}'"
+          },
+          {
+            "fieldPath": "blockedReason",
+            "columnName": "blocked_reason",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "blockedFieldsJson",
+            "columnName": "blocked_fields_json",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'[]'"
+          },
+          {
+            "fieldPath": "resumePdfPath",
+            "columnName": "resume_pdf_path",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "submitPolicy",
+            "columnName": "submit_policy",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'REVIEW_BEFORE_SUBMIT'"
+          },
+          {
+            "fieldPath": "reviewRequired",
+            "columnName": "review_required",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "attempts",
+            "columnName": "attempts",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "last_error",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "snoozedUntil",
+            "columnName": "snoozed_until",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "task_id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "github_repo_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`repo_id` INTEGER NOT NULL, `username` TEXT NOT NULL DEFAULT '', `name` TEXT NOT NULL DEFAULT '', `description` TEXT, `html_url` TEXT NOT NULL DEFAULT '', `topics` TEXT NOT NULL DEFAULT '', `languages` TEXT NOT NULL DEFAULT '', `pushed_at` TEXT, `readme_excerpt` TEXT, `etag` TEXT, `cached_at` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`repo_id`))",
+        "fields": [
+          {
+            "fieldPath": "repoId",
+            "columnName": "repo_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "username",
+            "columnName": "username",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "htmlUrl",
+            "columnName": "html_url",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "topics",
+            "columnName": "topics",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "languages",
+            "columnName": "languages",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "pushedAt",
+            "columnName": "pushed_at",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "readmeExcerpt",
+            "columnName": "readme_excerpt",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "etag",
+            "columnName": "etag",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cached_at",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "repo_id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "field_mapping_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`host` TEXT NOT NULL, `normalized_label` TEXT NOT NULL, `payload_key` TEXT NOT NULL, `updated_at` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`host`, `normalized_label`))",
+        "fields": [
+          {
+            "fieldPath": "host",
+            "columnName": "host",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedLabel",
+            "columnName": "normalized_label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payloadKey",
+            "columnName": "payload_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "host",
+            "normalized_label"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '0d04e05175e48cc17a855bdb1a56e4c1')"
+    ]
+  }
+}

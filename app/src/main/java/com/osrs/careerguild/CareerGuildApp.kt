@@ -37,6 +37,24 @@ class CareerGuildApp : Application() {
         // Task 1 / Task 4: Ingest any pending Forge results on app start safely on Dispatchers.IO
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             try {
+                // Phase 1.2: Startup crash recovery for Courier tasks
+                val existingTasks = appContainer.courierTaskDao.getAll()
+                val recovered = com.osrs.careerguild.presentation.dashboard.courierguild.CourierStateMachine.recoverOnStartup(existingTasks)
+                var hasQueued = false
+                for (updated in recovered) {
+                    appContainer.courierTaskDao.upsert(updated)
+                    if (updated.status == com.osrs.careerguild.presentation.dashboard.courierguild.CourierTaskStatus.QUEUED.name) {
+                        hasQueued = true
+                    }
+                }
+                if (hasQueued || existingTasks.any { it.status == com.osrs.careerguild.presentation.dashboard.courierguild.CourierTaskStatus.QUEUED.name }) {
+                    com.osrs.careerguild.presentation.dashboard.courierguild.CourierQueueWorker.enqueueAvailableSlots(this@CareerGuildApp)
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w("CareerGuildApp", "Courier startup recovery warning: ${t.message}")
+            }
+
+            try {
                 val pending = appContainer.forgeOutbox.listPendingTaskIds()
                 val results = appContainer.forgeInbox.readResults(pending)
                 for (item in results) {
@@ -50,6 +68,13 @@ class CareerGuildApp : Application() {
             } catch (t: Throwable) {
                 android.util.Log.w("CareerGuildApp", "Forge startup ingest warning: ${t.message}")
             }
+        }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (::appContainer.isInitialized) {
+            appContainer.courierWebHost.onTrimMemory(level)
         }
     }
 }

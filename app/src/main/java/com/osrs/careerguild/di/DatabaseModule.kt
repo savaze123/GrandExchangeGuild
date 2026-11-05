@@ -59,7 +59,7 @@ object DatabaseModule {
             "career_guild.db",
         )
             .openHelperFactory(factory)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
             .build()
     }
 
@@ -128,6 +128,63 @@ object DatabaseModule {
                     question_pattern TEXT NOT NULL PRIMARY KEY,
                     answer TEXT NOT NULL,
                     updated_at INTEGER NOT NULL
+                )
+            """.trimIndent())
+        }
+    }
+
+    val MIGRATION_5_6 = object : androidx.room.migration.Migration(5, 6) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("""
+                CREATE TABLE IF NOT EXISTS `courier_task` (
+                    `task_id` TEXT NOT NULL,
+                    `job_id` TEXT NOT NULL DEFAULT '',
+                    `job_url` TEXT NOT NULL DEFAULT '',
+                    `ats` TEXT NOT NULL DEFAULT '',
+                    `title` TEXT NOT NULL DEFAULT '',
+                    `company` TEXT NOT NULL DEFAULT '',
+                    `status` TEXT NOT NULL DEFAULT 'QUEUED',
+                    `step` TEXT NOT NULL DEFAULT 'INIT',
+                    `current_url` TEXT NOT NULL DEFAULT '',
+                    `filled_fields_json` TEXT NOT NULL DEFAULT '{}',
+                    `blocked_reason` TEXT,
+                    `blocked_fields_json` TEXT NOT NULL DEFAULT '[]',
+                    `resume_pdf_path` TEXT,
+                    `submit_policy` TEXT NOT NULL DEFAULT 'REVIEW_BEFORE_SUBMIT',
+                    `review_required` INTEGER NOT NULL DEFAULT 0,
+                    `attempts` INTEGER NOT NULL DEFAULT 0,
+                    `last_error` TEXT,
+                    `snoozed_until` INTEGER,
+                    `created_at` INTEGER NOT NULL DEFAULT 0,
+                    `updated_at` INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(`task_id`)
+                )
+            """.trimIndent())
+
+            database.execSQL("""
+                CREATE TABLE IF NOT EXISTS `github_repo_cache` (
+                    `repo_id` INTEGER NOT NULL,
+                    `username` TEXT NOT NULL DEFAULT '',
+                    `name` TEXT NOT NULL DEFAULT '',
+                    `description` TEXT,
+                    `html_url` TEXT NOT NULL DEFAULT '',
+                    `topics` TEXT NOT NULL DEFAULT '',
+                    `languages` TEXT NOT NULL DEFAULT '',
+                    `pushed_at` TEXT,
+                    `readme_excerpt` TEXT,
+                    `etag` TEXT,
+                    `cached_at` INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(`repo_id`)
+                )
+            """.trimIndent())
+
+            database.execSQL("""
+                CREATE TABLE IF NOT EXISTS `field_mapping_cache` (
+                    `host` TEXT NOT NULL,
+                    `normalized_label` TEXT NOT NULL,
+                    `payload_key` TEXT NOT NULL,
+                    `updated_at` INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(`host`, `normalized_label`)
                 )
             """.trimIndent())
         }

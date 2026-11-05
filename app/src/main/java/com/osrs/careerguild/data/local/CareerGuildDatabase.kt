@@ -6,6 +6,9 @@ import com.osrs.careerguild.data.local.dao.ApplicantAnswerDao
 import com.osrs.careerguild.data.local.dao.BaseResumeDao
 import com.osrs.careerguild.data.local.dao.BlockedCompanyDao
 import com.osrs.careerguild.data.local.dao.CourierAccountDao
+import com.osrs.careerguild.data.local.dao.CourierTaskDao
+import com.osrs.careerguild.data.local.dao.FieldMappingCacheDao
+import com.osrs.careerguild.data.local.dao.GitHubRepoCacheDao
 import com.osrs.careerguild.data.local.dao.GitHubRepoDao
 import com.osrs.careerguild.data.local.dao.JobDao
 import com.osrs.careerguild.data.local.dao.SkillDao
@@ -13,6 +16,9 @@ import com.osrs.careerguild.data.local.entity.ApplicantAnswerEntity
 import com.osrs.careerguild.data.local.entity.BaseResumeEntity
 import com.osrs.careerguild.data.local.entity.BlockedCompanyEntity
 import com.osrs.careerguild.data.local.entity.CourierAccountEntity
+import com.osrs.careerguild.data.local.entity.CourierTaskEntity
+import com.osrs.careerguild.data.local.entity.FieldMappingCacheEntity
+import com.osrs.careerguild.data.local.entity.GitHubRepoCacheEntity
 import com.osrs.careerguild.data.local.entity.GitHubRepoEntity
 import com.osrs.careerguild.data.local.entity.JobEntity
 import com.osrs.careerguild.data.local.entity.SkillEntity
@@ -42,9 +48,12 @@ import com.osrs.careerguild.data.local.entity.SkillEntity
         GitHubRepoEntity::class,
         CourierAccountEntity::class,
         ApplicantAnswerEntity::class,
+        CourierTaskEntity::class,
+        GitHubRepoCacheEntity::class,
+        FieldMappingCacheEntity::class,
     ],
-    version      = 5,
-    exportSchema = false,
+    version      = 6,
+    exportSchema = true,
 )
 abstract class CareerGuildDatabase : RoomDatabase() {
 
@@ -55,6 +64,9 @@ abstract class CareerGuildDatabase : RoomDatabase() {
     abstract fun gitHubRepoDao(): GitHubRepoDao
     abstract fun courierAccountDao(): CourierAccountDao
     abstract fun applicantAnswerDao(): ApplicantAnswerDao
+    abstract fun courierTaskDao(): CourierTaskDao
+    abstract fun gitHubRepoCacheDao(): GitHubRepoCacheDao
+    abstract fun fieldMappingCacheDao(): FieldMappingCacheDao
 
     companion object {
         init {

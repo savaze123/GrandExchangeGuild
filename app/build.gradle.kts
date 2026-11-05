@@ -27,6 +27,14 @@ android {
         }
     }
 
+    ksp {
+        arg("room.schemaLocation", "$projectDir/schemas")
+    }
+
+    sourceSets {
+        getByName("androidTest").assets.srcDirs("$projectDir/schemas")
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -146,6 +154,8 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.sqlcipher.android)
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.webkit)
 
     // Tech Radar Scraper (Ktor Client + Coroutines + Serialization)
     implementation(libs.ktor.client.core)
@@ -165,4 +175,11 @@ dependencies {
     // Unit Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("org.json:json:20231013")
+
+    // Instrumented Testing (Room MigrationTestHelper & Fixture Tests)
+    androidTestImplementation(libs.androidx.room.testing)
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 }

@@ -24,6 +24,10 @@ import com.osrs.careerguild.domain.usecase.skillmatrix.RemoveSkillUseCase
 import com.osrs.careerguild.domain.usecase.skillmatrix.SeedDefaultSkillsUseCase
 import com.osrs.careerguild.domain.usecase.skillmatrix.ToggleSkillUseCase
 import com.osrs.careerguild.presentation.dashboard.bountyboard.BountyBoardViewModel
+import com.osrs.careerguild.presentation.dashboard.courierguild.CourierAutoApplyDispatcher
+import com.osrs.careerguild.presentation.dashboard.courierguild.CourierModel
+import com.osrs.careerguild.presentation.dashboard.courierguild.CourierWebHost
+import com.osrs.careerguild.presentation.dashboard.courierguild.GeminiCourierModel
 import com.osrs.careerguild.presentation.dashboard.skillaltar.SkillAltarViewModel
 
 private val Context.dataStore by preferencesDataStore(name = "career_guild_prefs")
@@ -70,6 +74,21 @@ class AppContainer(context: Context) {
     val gitHubRepoDao             = db.gitHubRepoDao()
     val courierAccountDao         = db.courierAccountDao()
     val applicantAnswerDao        = db.applicantAnswerDao()
+    val courierTaskDao            = db.courierTaskDao()
+    val gitHubRepoCacheDao        = db.gitHubRepoCacheDao()
+    val fieldMappingCacheDao      = db.fieldMappingCacheDao()
+
+    // ---------------------------------------------------------------------------
+    // Courier Autonomous Agent (Model + Headless WebHost)
+    // ---------------------------------------------------------------------------
+
+    val courierModel: CourierModel = GeminiCourierModel(
+        tokenGovernor = tokenGovernor,
+        apiKey = BuildConfig.GEMINI_API_KEY,
+    )
+    val courierWebHost: CourierWebHost = CourierWebHost(appContext).also { host ->
+        CourierAutoApplyDispatcher.injectDependencies(courierModel, host)
+    }
 
     // ---------------------------------------------------------------------------
     // Repositories (domain interfaces)

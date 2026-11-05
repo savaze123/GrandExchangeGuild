@@ -1,5 +1,6 @@
 package com.osrs.careerguild.presentation
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -7,6 +8,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
 import com.osrs.careerguild.CareerGuildApp
 import com.osrs.careerguild.di.LocalAppContainer
+import com.osrs.careerguild.presentation.dashboard.courierguild.CourierAutoApplyDispatcher
+import com.osrs.careerguild.presentation.dashboard.courierguild.CourierQueueWorker
 import com.osrs.careerguild.presentation.theme.CareerGuildTheme
 import com.osrs.careerguild.presentation.scaffold.GuildScaffold
 
@@ -41,6 +44,7 @@ class MainActivity : ComponentActivity() {
             android.util.Log.w("MainActivity", "SQLCipher loadLibrary warning: ${t.message}")
         }
         enableEdgeToEdge()
+        handleTakeoverIntent(intent)
         val app = application as CareerGuildApp
         setContent {
             CompositionLocalProvider(LocalAppContainer provides app.appContainer) {
@@ -48,6 +52,19 @@ class MainActivity : ComponentActivity() {
                     GuildScaffold()
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleTakeoverIntent(intent)
+    }
+
+    private fun handleTakeoverIntent(intent: Intent?) {
+        val taskId = intent?.getStringExtra(CourierQueueWorker.EXTRA_TAKEOVER_TASK_ID)
+        if (!taskId.isNullOrBlank()) {
+            CourierAutoApplyDispatcher.openTakeover(taskId)
         }
     }
 }

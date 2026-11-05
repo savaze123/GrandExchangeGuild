@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Networking: TECH_RADAR_SCRAPER, SCREENSHOT_OCR_HUNTER -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -7,6 +8,11 @@
 
     <!-- Screenshot OCR: SCREENSHOT_OCR_HUNTER -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <!-- Courier hand-off alerts (video intro / assessment hard stops) & WorkManager foreground service -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- Google Filament requires OpenGL ES 3.0+ (UI_3D_GUILD_HUB) -->
     <uses-feature
@@ -44,6 +50,12 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- WorkManager Foreground Service for CourierQueueWorker (dataSync) -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
     </application>
 
